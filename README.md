@@ -2,6 +2,13 @@
 
 ENMGT 5405 final project. This prototype will help members find equipment, check training and machine status, and find staff-approved guidance. Staff will manage equipment, review drafted procedures, and handle escalations.
 
+The planned deliverables are a working web app with a staff dashboard and member portal, a fictional makerspace with about 8–10 machines, an evaluation report, and a recorded demo.
+
+- [Project plan](docs/project-plan.md) covers ownership, workflows, evaluation, and milestones.
+- [Shared contracts](docs/shared-contracts.md) describes how modules connect.
+- [Revised proposal](https://docs.google.com/document/d/1q-CFBuJOqFvfAmSzHHrwpZtl8f3_ZWZ9Pgnfu12R8g8/edit?tab=t.0) is the source for the project plan.
+
+
 ## Repository layout
 
 | Path | Purpose |
