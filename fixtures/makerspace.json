@@ -1,0 +1,13 @@
+{
+  "equipment": [
+    {"id": "laser-01", "name": "Demo laser cutter"},
+    {"id": "printer-01", "name": "Demo 3D printer"}
+  ],
+  "floor_plan": {
+    "room": "Demo workshop",
+    "markers": [
+      {"equipment_id": "laser-01", "x": 2, "y": 3},
+      {"equipment_id": "printer-01", "x": 5, "y": 3}
+    ]
+  }
+}
