@@ -1,0 +1,191 @@
+# Global safety rules for the deterministic safety tools (R3).
+#
+# PLACEHOLDER VALUES for the fictional makerspace. A real makerspace must review every value
+# with its safety officer and replace the sources with its own policies.
+# Every rule has an id so tool results can say exactly which rule fired.
+
+categories:
+  laser_cutter:
+    label: Laser cutter
+    keywords: [laser, laser cut, laser-cut, lasercut, engrave, etch, laser engrave]
+  fdm_printer:
+    label: FDM 3D printer
+    keywords: [3d print, 3d-print, 3d printed, fdm, filament print, print a, print the, printed]
+  resin_printer:
+    label: Resin 3D printer
+    keywords: [resin print, resin printer, sla, msla, resin-print]
+  cnc_router:
+    label: CNC router
+    keywords: [cnc, router, mill, milling, carve, carving, v-carve]
+  table_saw:
+    label: Table saw
+    keywords: [table saw, rip, ripping, crosscut, cross-cut]
+  bandsaw:
+    label: Bandsaw
+    keywords: [bandsaw, band saw, curve cut, resaw]
+  drill_press:
+    label: Drill press
+    keywords: [drill press, drill, drilling, bore holes]
+  soldering:
+    label: Soldering station
+    keywords: [solder, soldering, reflow, desolder]
+  sewing:
+    label: Sewing machine
+    keywords: [sew, sewing, stitch, hem, quilt]
+  vinyl_cutter:
+    label: Vinyl cutter
+    keywords: [vinyl cut, vinyl cutter, sticker, decal, heat transfer vinyl, htv]
+
+# Process words that are not machines but matter for cross-step rules
+processes:
+  sanding: [sand, sanding, sandpaper]
+  gluing: [glue, gluing, acrylic cement, solvent weld, superglue, epoxy, ca glue]
+  painting: [paint, spray paint, spraying, lacquer, varnish]
+  lithium_battery: [lipo, li-ion, lithium, "18650", battery pack]
+
+# Material names -> canonical name. Matching is case-insensitive on whole words.
+materials:
+  acrylic: [acrylic, pmma, plexiglass, plexiglas, perspex, cast acrylic]
+  plywood: [plywood, birch plywood, baltic birch, ply]
+  mdf: [mdf]
+  wood: [wood, timber, lumber]
+  hardwood: [hardwood, oak, maple, walnut, cherry]
+  softwood: [pine, softwood, poplar, cedar]
+  cardboard: [cardboard, chipboard]
+  paper: [paper, cardstock]
+  leather_veg_tan: [leather, veg-tan leather, vegetable tanned leather, vegetable-tanned leather]
+  leather_chrome_tan: [chrome-tanned leather, chrome tanned leather, chrome leather]
+  cotton_fabric: [cotton, fabric, felt, canvas, denim]
+  pvc: [pvc, vinyl sheet, vinyl record, pleather, faux leather, polyvinyl chloride]
+  polycarbonate: [polycarbonate, lexan, makrolon]
+  abs: [abs]
+  hdpe: [hdpe]
+  polystyrene_foam: [polystyrene, styrofoam, eps foam]
+  fiberglass: [fiberglass, fibreglass, g10, fr4]
+  carbon_fiber: [carbon fiber, carbon fibre]
+  pla: [pla]
+  petg: [petg]
+  tpu: [tpu]
+  nylon: [nylon]
+  standard_resin: [standard resin, resin]
+  aluminum: [aluminum, aluminium]
+  steel: [steel, stainless]
+  brass: [brass]
+  copper: [copper]
+  adhesive_vinyl: [adhesive vinyl, oracal, sign vinyl]
+  heat_transfer_vinyl: [heat transfer vinyl, htv, iron-on vinyl]
+  lead_free_solder: [lead-free solder, lead free solder]
+  leaded_solder: [leaded solder, 60/40 solder, 63/37 solder]
+
+# A rule for the parent covers the child when the child has no rule of its own.
+material_parents:
+  hardwood: wood
+  softwood: wood
+
+# Machines where the things you work on are parts or textiles rather than stock: an
+# unrecognized item here is noted for the member, not escalated as an unknown material (E01).
+component_categories: [soldering, sewing]
+
+# Materials banned on a whole category of machine, whatever the machine record says.
+# A global ban always wins over a machine-level "allowed".
+banned:
+  laser_cutter:
+    - {material: pvc, rule_id: MAT-LASER-PVC, reason: "Releases chlorine gas when cut; damages optics and harms lungs."}
+    - {material: polycarbonate, rule_id: MAT-LASER-PC, reason: "Catches fire and cuts poorly; discolors and releases fumes."}
+    - {material: abs, rule_id: MAT-LASER-ABS, reason: "Melts and gives off hazardous fumes, including cyanide compounds."}
+    - {material: hdpe, rule_id: MAT-LASER-HDPE, reason: "Melts and catches fire."}
+    - {material: polystyrene_foam, rule_id: MAT-LASER-EPS, reason: "Catches fire quickly."}
+    - {material: fiberglass, rule_id: MAT-LASER-FG, reason: "Releases hazardous fumes from the resin binder."}
+    - {material: carbon_fiber, rule_id: MAT-LASER-CF, reason: "Releases hazardous fumes from the resin binder."}
+    - {material: leather_chrome_tan, rule_id: MAT-LASER-CHROME, reason: "Chrome-tanned leather releases toxic chromium compounds when lasered."}
+  cnc_router:
+    - {material: fiberglass, rule_id: MAT-CNC-FG, reason: "Hazardous dust; needs a dedicated extraction setup."}
+    - {material: carbon_fiber, rule_id: MAT-CNC-CF, reason: "Conductive, hazardous dust."}
+  table_saw:
+    - {material: steel, rule_id: MAT-SAW-STEEL, reason: "Wood blade; metal causes kickback and blade failure."}
+    - {material: acrylic, rule_id: MAT-SAW-ACR, reason: "Needs a dedicated plastics blade fitted by staff."}
+
+# Baseline PPE per category. The SOP adds machine-specific PPE with citations.
+baseline_ppe:
+  laser_cutter:
+    - {item: "Never leave the laser running unattended", rule_id: PPE-LASER-ATTEND}
+    - {item: "Keep the lid closed while the laser fires", rule_id: PPE-LASER-LID}
+  fdm_printer:
+    - {item: "Do not touch the nozzle or bed while hot", rule_id: PPE-FDM-HOT}
+  resin_printer:
+    - {item: "Nitrile gloves", rule_id: PPE-RESIN-GLOVES}
+    - {item: "Safety glasses", rule_id: PPE-RESIN-EYES}
+  cnc_router:
+    - {item: "Safety glasses", rule_id: PPE-CNC-EYES}
+    - {item: "Hearing protection", rule_id: PPE-CNC-EARS}
+  table_saw:
+    - {item: "Safety glasses", rule_id: PPE-SAW-EYES}
+    - {item: "Hearing protection", rule_id: PPE-SAW-EARS}
+    - {item: "No gloves, loose sleeves or jewelry", rule_id: PPE-SAW-LOOSE}
+  bandsaw:
+    - {item: "Safety glasses", rule_id: PPE-BAND-EYES}
+  drill_press:
+    - {item: "Safety glasses", rule_id: PPE-DRILL-EYES}
+    - {item: "No gloves, loose sleeves or jewelry", rule_id: PPE-DRILL-LOOSE}
+  soldering:
+    - {item: "Safety glasses", rule_id: PPE-SOLDER-EYES}
+    - {item: "Fume extractor on", rule_id: PPE-SOLDER-FUME}
+  sewing: []
+  vinyl_cutter: []
+
+# check_sop_rules: what every SOP draft must contain
+sop_required_sections: ["PPE", "Before you start", "Operation", "Material rules", "Emergency"]
+# words that must appear somewhere in PPE statements for a category (any one of each group)
+sop_required_ppe_terms:
+  laser_cutter: [["unattended", "attend"]]
+  resin_printer: [["glove"], ["glasses", "goggles", "eye"]]
+  cnc_router: [["glasses", "goggles", "eye"]]
+  table_saw: [["glasses", "goggles", "eye"]]
+  bandsaw: [["glasses", "goggles", "eye"]]
+  drill_press: [["glasses", "goggles", "eye"]]
+  soldering: [["glasses", "goggles", "eye"]]
+
+# Cross-step rules for Project Check: fire when ALL triggers appear in one project.
+cross_step:
+  - id: X-RESIN-SAND
+    triggers: [resin_printer, sanding]
+    severity: high
+    text: "Sanding resin prints makes hazardous dust. Fully cure the print, wet-sand it, and wear gloves and a dust mask."
+  - id: X-SOLVENT-LASER
+    triggers: [laser_cutter, gluing]
+    severity: medium
+    text: "Keep glues and solvents away from the laser cutter. Their vapors can ignite. Glue parts at a separate bench after cutting."
+  - id: X-PAINT-IGNITION
+    triggers: [painting, laser_cutter]
+    severity: high
+    text: "Paint or spray near the laser is a fire risk. Paint in the ventilated finishing area, and let parts dry fully before laser work."
+  - id: X-PAINT-SOLDER
+    triggers: [painting, soldering]
+    severity: medium
+    text: "Keep spray paint and solvents away from hot soldering irons."
+  - id: X-LIPO-SOLDER
+    triggers: [lithium_battery, soldering]
+    severity: high
+    text: "Soldering near lithium batteries can start a fire. Never solder directly to cells; use a fireproof surface and ask staff first."
+  - id: X-LASER-ACRYLIC-SAW
+    triggers: [table_saw, laser_cutter]
+    severity: low
+    text: "If you cut the same acrylic on both the saw and the laser, ask staff to fit the plastics blade first."
+
+# Layout rules (metres). Placeholder house rules, loosely based on common fire-code values;
+# confirm with your local fire code before relying on them.
+layout:
+  grid_m: 0.1
+  min_aisle_m: 0.71              # LAY-AISLE: about 28 inches clear path to an exit
+  extinguisher_max_m: 22.9       # LAY-EXT: about 75 ft travel distance to an extinguisher
+  laser_extinguisher_max_m: 3.0  # LAY-EXT-LASER: house rule, extinguisher next to every laser
+  eyewash_max_m: 16.8            # LAY-EYEWASH: about 10 seconds' walk from resin handling
+  eyewash_categories: [resin_printer]
+  require_first_aid: true        # LAY-FIRSTAID
+
+# 5 x 5 risk matrix: score = likelihood x severity
+risk_levels:
+  - {max: 4, level: low}
+  - {max: 9, level: medium}
+  - {max: 16, level: high}
+  - {max: 25, level: critical}
