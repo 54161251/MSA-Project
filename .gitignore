@@ -1,8 +1,10 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
 .venv/
 venv/
+*.egg-info/
 .env
 .env.*
 !.env.example
@@ -10,3 +12,8 @@ api_key.txt
 *.sqlite
 *.sqlite3
 *.db
+*.db-journal
+var/
+eval/results/*.json
+!eval/results/.gitkeep
+.DS_Store
