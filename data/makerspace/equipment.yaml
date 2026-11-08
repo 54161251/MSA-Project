@@ -1,0 +1,104 @@
+# Equipment register for the fictional makerspace. All brands and models are invented.
+# Specs, SOPs, training docs and material lists are NOT typed here: the Equipment Intake
+# agent produces them from each manual (manuals/), and Review checks them.
+# Units: metres. Clearance = free space needed on each side (front faces the operator).
+- id: laser-01
+  name: Laser Cutter (Lumenic Vector 60)
+  brand: Lumenic
+  model_number: Vector 60
+  category: laser_cutter
+  approval_mode: competency_check
+  prerequisites: []
+  training_valid_months: 12
+  clearance: {front: 1.0, back: 0.3, left: 0.6, right: 0.6}
+  video_links: ["https://example.org/videos/lumenic-vector-60-basics"]
+- id: fdm-01
+  name: 3D Printer 1 (Strata Forge S1)
+  brand: Strata
+  model_number: Forge S1
+  category: fdm_printer
+  approval_mode: auto
+  prerequisites: []
+  training_valid_months: 24
+  clearance: {front: 0.6, back: 0.1, left: 0.2, right: 0.2}
+- id: fdm-02
+  name: 3D Printer 2 (Strata Forge S1)
+  brand: Strata
+  model_number: Forge S1
+  category: fdm_printer
+  approval_mode: auto
+  prerequisites: []
+  training_valid_months: 24
+  clearance: {front: 0.6, back: 0.1, left: 0.2, right: 0.2}
+- id: resin-01
+  name: Resin Printer (Prismata Lux 8K)
+  brand: Prismata
+  model_number: Lux 8K
+  category: resin_printer
+  approval_mode: competency_check
+  prerequisites: [fdm-01]
+  training_valid_months: 12
+  clearance: {front: 0.8, back: 0.2, left: 0.3, right: 0.3}
+- id: cnc-01
+  name: CNC Router (Ironleaf R4848)
+  brand: Ironleaf
+  model_number: R4848
+  category: cnc_router
+  approval_mode: competency_check
+  prerequisites: [drill-01]
+  training_valid_months: 12
+  clearance: {front: 1.0, back: 0.5, left: 0.8, right: 0.8}
+- id: saw-01
+  name: Table Saw (Kestrel TS10)
+  brand: Kestrel
+  model_number: TS10
+  category: table_saw
+  approval_mode: competency_check
+  prerequisites: [band-01]
+  training_valid_months: 12
+  clearance: {front: 2.4, back: 2.4, left: 0.9, right: 0.9}
+- id: band-01
+  name: Bandsaw (Kestrel BX14)
+  brand: Kestrel
+  model_number: BX14
+  category: bandsaw
+  approval_mode: competency_check
+  prerequisites: []
+  training_valid_months: 12
+  clearance: {front: 1.0, back: 0.4, left: 0.8, right: 0.8}
+- id: drill-01
+  name: Drill Press (Ironleaf DP17)
+  brand: Ironleaf
+  model_number: DP17
+  category: drill_press
+  approval_mode: auto
+  prerequisites: []
+  training_valid_months: 24
+  clearance: {front: 0.9, back: 0.2, left: 0.5, right: 0.5}
+- id: solder-01
+  name: Soldering Station (Solderix SX-70)
+  brand: Solderix
+  model_number: SX-70
+  category: soldering
+  approval_mode: auto
+  prerequisites: []
+  training_valid_months: 24
+  clearance: {front: 0.6, back: 0.1, left: 0.3, right: 0.3}
+- id: sew-01
+  name: Sewing Machine (Thimble T900)
+  brand: Thimble & Co.
+  model_number: T900
+  category: sewing
+  approval_mode: auto
+  prerequisites: []
+  training_valid_months: 36
+  clearance: {front: 0.7, back: 0.1, left: 0.3, right: 0.3}
+- id: vinyl-01
+  name: Vinyl Cutter (Cutline C24)
+  brand: Cutline
+  model_number: C24
+  category: vinyl_cutter
+  approval_mode: auto
+  prerequisites: []
+  training_valid_months: 36
+  clearance: {front: 0.6, back: 0.3, left: 0.2, right: 0.2}

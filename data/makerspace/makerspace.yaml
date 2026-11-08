@@ -1,0 +1,8 @@
+# Fictional makerspace used for the demo and tests. Nothing here is a real organization.
+name: Fernwood Community Makerspace
+emergency_number: "911"
+emergency_note: >-
+  For fire, injury or electric shock call 911 first, then tell any staff member.
+  First aid kit and eyewash are by the main door; fire extinguishers are marked on the floor plan.
+maintenance_grace_days: 7
+display_units: ft

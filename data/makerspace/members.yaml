@@ -1,0 +1,28 @@
+# Fake members for the demo (A9: no real people). Every password is "password123".
+# trained_on: machines this member is already certified on when the demo starts.
+- name: Alex Morgan
+  email: alex.staff@example.org
+  birth_year: 1988
+  role: staff
+- name: Priya Shah
+  email: priya@example.org
+  birth_year: 1996
+  trained_on: [laser-01, fdm-01, fdm-02, solder-01, drill-01]
+- name: Marcus Lee
+  email: marcus@example.org
+  birth_year: 2001
+  trained_on: []
+- name: Sam Rivera
+  email: sam@example.org
+  birth_year: 1979
+  trained_on: [drill-01, band-01, saw-01, sew-01]
+- name: Jordan Rivera
+  email: jordan@example.org
+  birth_age: 16
+  waiver_status: guardian_signed
+  trained_on: [fdm-01]
+- name: Ellie Rivera
+  email: ellie.rivera.child@example.org
+  birth_age: 12
+  guardian_email: sam@example.org
+  trained_on: []
