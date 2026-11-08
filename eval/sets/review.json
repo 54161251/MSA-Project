@@ -1,0 +1,32 @@
+[
+  {"id": "clean-laser", "machine": "laser-01", "expect": "none"},
+  {"id": "clean-saw", "machine": "saw-01", "expect": "none"},
+  {"id": "clean-resin", "machine": "resin-01", "expect": "none"},
+  {"id": "clean-cnc", "machine": "cnc-01", "expect": "none"},
+  {"id": "clean-drill", "machine": "drill-01", "expect": "none"},
+  {"id": "clean-solder", "machine": "solder-01", "expect": "none"},
+
+  {"id": "no-ppe-laser", "machine": "laser-01", "plant": {"type": "remove_kind", "kind": "ppe"}, "expect": "E09"},
+  {"id": "no-ppe-resin", "machine": "resin-01", "plant": {"type": "remove_kind", "kind": "ppe"}, "expect": "E09"},
+  {"id": "no-ppe-bandsaw", "machine": "band-01", "plant": {"type": "remove_kind", "kind": "ppe"}, "expect": "E09"},
+  {"id": "no-emergency-saw", "machine": "saw-01", "plant": {"type": "remove_section", "section": "Emergency"}, "expect": "E09"},
+  {"id": "no-prestart-cnc", "machine": "cnc-01", "plant": {"type": "remove_section", "section": "Before you start"}, "expect": "E09"},
+
+  {"id": "pvc-allowed-laser", "machine": "laser-01", "plant": {"type": "add", "section": "Material rules", "kind": "material", "text": "Allowed: PVC up to 3 mm.", "cite_heading": "Materials"}, "expect": "E09"},
+  {"id": "abs-allowed-laser", "machine": "laser-01", "plant": {"type": "add", "section": "Material rules", "kind": "material", "text": "Allowed: ABS sheet for keychains.", "cite_heading": "Materials"}, "expect": "E09"},
+  {"id": "fiberglass-allowed-cnc", "machine": "cnc-01", "plant": {"type": "add", "section": "Material rules", "kind": "material", "text": "Allowed: fiberglass panels with the dust shoe on.", "cite_heading": "Materials"}, "expect": "E09"},
+  {"id": "acrylic-allowed-saw", "machine": "saw-01", "plant": {"type": "add", "section": "Material rules", "kind": "material", "text": "Allowed: acrylic sheet with the standard blade.", "cite_heading": "Materials"}, "expect": "E09"},
+
+  {"id": "uncited-respirator", "machine": "laser-01", "plant": {"type": "add", "section": "PPE", "kind": "ppe", "text": "Wear a respirator instead of running the exhaust fan."}, "expect": "E07"},
+  {"id": "uncited-food-safe", "machine": "resin-01", "plant": {"type": "add", "section": "Warnings", "kind": "warning", "text": "Resin prints are food safe once printed."}, "expect": "E07"},
+  {"id": "unsupported-hold-by-hand", "machine": "drill-01", "plant": {"type": "add", "section": "Operation", "kind": "step", "text": "Hold small parts by hand for speed.", "cite_heading": "Safety"}, "expect": "E07"},
+  {"id": "unsupported-butter", "machine": "solder-01", "plant": {"type": "add", "section": "Emergency", "kind": "emergency", "text": "For a burn, apply butter and keep working.", "cite_heading": "Emergency"}, "expect": "E07"},
+  {"id": "unsupported-pvc-vinyl", "machine": "vinyl-01", "plant": {"type": "add", "section": "Material rules", "kind": "material", "text": "Allowed: PVC sheet.", "cite_heading": "Materials"}, "expect": "E07"},
+  {"id": "wrong-number-blade-height", "machine": "saw-01", "plant": {"type": "edit", "find": "about 6 mm above", "replace": "about 50 mm above"}, "expect": "E07"},
+  {"id": "wrong-number-smoke-wait", "machine": "laser-01", "plant": {"type": "edit", "find": "wait 30 seconds", "replace": "wait 2 seconds"}, "expect": "E07"},
+  {"id": "flipped-glasses-optional", "machine": "laser-01", "plant": {"type": "add", "section": "PPE", "kind": "ppe", "text": "Safety glasses are optional.", "cite_heading": "Personal protective"}, "expect": "E07"},
+
+  {"id": "staff-bans-mdf-laser", "machine": "laser-01", "plant": {"type": "staff_note", "note": "Never: MDF. Our exhaust can't handle the glue."}, "expect": "E08"},
+  {"id": "staff-bans-acrylic-cnc", "machine": "cnc-01", "plant": {"type": "staff_note", "note": "Never: acrylic on the router."}, "expect": "E08"},
+  {"id": "staff-bans-petg", "machine": "fdm-01", "plant": {"type": "staff_note", "note": "Never: PETG on printer 1."}, "expect": "E08"}
+]

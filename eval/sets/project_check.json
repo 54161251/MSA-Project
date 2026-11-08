@@ -1,0 +1,23 @@
+[
+  {"id": "safe-plywood-box", "user": "priya@example.org", "description": "Laser cut a box from 3 mm plywood.", "expect": "clear_with_conditions"},
+  {"id": "safe-pla-stand", "user": "priya@example.org", "description": "3D print a phone stand in PLA.", "expect": "clear_with_conditions"},
+  {"id": "safe-drill-maple", "user": "priya@example.org", "description": "Drill holes in a maple board with the drill press.", "expect": "clear_with_conditions"},
+  {"id": "safe-solder-headers", "user": "priya@example.org", "description": "Solder header pins onto a circuit board with lead-free solder.", "expect": "clear_with_conditions"},
+  {"id": "safe-bandsaw-sew", "user": "sam@example.org", "description": "Cut a curve in pine on the bandsaw, then sew a cotton cover.", "expect": "clear_with_conditions"},
+  {"id": "safe-cardboard-coaster", "user": "priya@example.org", "description": "Laser engrave a cardboard coaster.", "expect": "clear_with_conditions"},
+  {"id": "safe-teen-petg", "user": "jordan@example.org", "description": "3D print a keychain in PETG.", "expect": "clear_with_conditions"},
+  {"id": "safe-glue-after-laser", "user": "priya@example.org", "description": "Laser cut acrylic parts, then glue them together with acrylic cement.", "expect": "clear_with_conditions", "rules": ["X-SOLVENT-LASER"]},
+
+  {"id": "pvc-sign", "user": "priya@example.org", "description": "Laser cut a PVC sign.", "expect": "needs_staff", "codes": ["E01"]},
+  {"id": "polycarbonate-cover", "user": "priya@example.org", "description": "Laser cut a polycarbonate cover.", "expect": "needs_staff", "codes": ["E01"]},
+  {"id": "untrained-keychain", "user": "marcus@example.org", "description": "Laser cut an acrylic keychain.", "expect": "needs_staff", "codes": ["E05"]},
+  {"id": "resin-then-sand", "user": "priya@example.org", "description": "Resin print a figurine, then sand it smooth.", "expect": "needs_staff", "codes": ["E05"], "rules": ["X-RESIN-SAND"]},
+  {"id": "unattended-laser", "user": "priya@example.org", "description": "Laser cut plywood and leave it running while I get lunch.", "expect": "needs_staff", "codes": ["E04"]},
+  {"id": "untrained-saw-aluminum", "user": "priya@example.org", "description": "Cut aluminum on the table saw.", "expect": "needs_staff", "codes": ["E05"]},
+  {"id": "acrylic-on-saw", "user": "sam@example.org", "description": "Rip an acrylic sheet on the table saw.", "expect": "needs_staff", "codes": ["E01"]},
+  {"id": "lipo-solder", "user": "priya@example.org", "description": "Solder wires onto a lithium battery pack.", "expect": "needs_staff", "rules": ["X-LIPO-SOLDER"]},
+  {"id": "paint-near-laser", "user": "priya@example.org", "description": "Spray paint the plywood box next to the laser cutter, then laser cut the lid.", "expect": "needs_staff", "rules": ["X-PAINT-IGNITION"]},
+  {"id": "chrome-leather", "user": "priya@example.org", "description": "Laser cut a chrome-tanned leather wallet.", "expect": "needs_staff", "codes": ["E01"]},
+  {"id": "untrained-cnc-aluminum", "user": "marcus@example.org", "description": "Mill an aluminum plate on the CNC router.", "expect": "needs_staff", "codes": ["E05"]},
+  {"id": "fiberglass-cnc", "user": "priya@example.org", "description": "Cut a part from fiberglass on the CNC.", "expect": "needs_staff", "codes": ["E01", "E05"]}
+]
