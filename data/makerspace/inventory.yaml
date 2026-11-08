@@ -1,0 +1,14 @@
+# Starting stock for the fictional makerspace. Suppliers are invented.
+- {name: "Acrylic sheet 3 mm (600x400)", unit: sheet, category: laser, qty: 14, reorder_point: 6, reorder_qty: 20, supplier: "Northgate Plastics", aliases: ["acrylic", "3 mm acrylic", "acrylic sheet"]}
+- {name: "Plywood 3 mm (600x400)", unit: sheet, category: laser, qty: 25, reorder_point: 10, reorder_qty: 40, supplier: "Fernwood Lumber", aliases: ["plywood", "3 mm plywood", "birch ply", "ply"]}
+- {name: "MDF 6 mm (600x400)", unit: sheet, category: laser, qty: 8, reorder_point: 5, reorder_qty: 20, supplier: "Fernwood Lumber", aliases: ["mdf"]}
+- {name: "PLA filament 1 kg", unit: spool, category: printing, qty: 9, reorder_point: 4, reorder_qty: 10, supplier: "Strata Supply", aliases: ["pla", "pla filament", "filament"]}
+- {name: "PETG filament 1 kg", unit: spool, category: printing, qty: 3, reorder_point: 2, reorder_qty: 5, supplier: "Strata Supply", aliases: ["petg"]}
+- {name: "Standard resin 1 L", unit: bottle, category: printing, qty: 4, reorder_point: 2, reorder_qty: 4, supplier: "Prismata Direct", aliases: ["resin", "standard resin"]}
+- {name: "Isopropyl alcohol 99% 1 L", unit: bottle, category: printing, qty: 5, reorder_point: 2, reorder_qty: 6, supplier: "Prismata Direct", aliases: ["ipa", "isopropyl", "alcohol"]}
+- {name: "Nitrile gloves (box of 100)", unit: box, category: ppe, qty: 3, reorder_point: 2, reorder_qty: 6, supplier: "SafeHands Co", aliases: ["gloves", "nitrile gloves"]}
+- {name: "Lead-free solder 100 g", unit: spool, category: electronics, qty: 6, reorder_point: 2, reorder_qty: 4, supplier: "Solderix Parts", aliases: ["solder", "lead-free solder"]}
+- {name: "Fume extractor filter", unit: each, category: electronics, qty: 2, reorder_point: 1, reorder_qty: 4, supplier: "Solderix Parts", aliases: ["filter", "fume filter"]}
+- {name: "Adhesive vinyl roll 12 in", unit: roll, category: vinyl, qty: 7, reorder_point: 3, reorder_qty: 6, supplier: "Cutline Store", aliases: ["vinyl", "adhesive vinyl", "vinyl roll"]}
+- {name: "Lens wipes (pack of 50)", unit: pack, category: laser, qty: 2, reorder_point: 1, reorder_qty: 3, supplier: "Northgate Plastics", aliases: ["lens wipes"]}
+- {name: "Sandpaper assorted (pack)", unit: pack, category: wood, qty: 10, reorder_point: 4, reorder_qty: 10, supplier: "Fernwood Lumber", aliases: ["sandpaper"]}

@@ -1,0 +1,30 @@
+[
+  {"id": "laser-not-firing-x3", "reports": [
+    {"text": "The laser cutter is not firing", "equipment_id": "laser-01", "kind": "feedback", "group": "a"},
+    {"text": "laser won't fire, the tube seems dead", "equipment_id": "laser-01", "kind": "feedback", "group": "a"},
+    {"text": "Laser cutter broken again", "kind": "feedback", "group": "a"}]},
+  {"id": "printer-jam-vs-low-filament", "reports": [
+    {"text": "3D printer 1 nozzle is jammed", "equipment_id": "fdm-01", "kind": "feedback", "group": "a"},
+    {"text": "We're running low on PLA filament", "kind": "feedback", "group": "b"}]},
+  {"id": "two-machines-same-issue", "reports": [
+    {"text": "Bandsaw won't turn on", "equipment_id": "band-01", "kind": "feedback", "group": "a"},
+    {"text": "Drill press won't turn on", "equipment_id": "drill-01", "kind": "feedback", "group": "b"}]},
+  {"id": "saw-cut-incident", "reports": [
+    {"text": "I cut my thumb on the table saw and it's bleeding", "equipment_id": "saw-01", "kind": "incident"}]},
+  {"id": "laser-fire-incident", "reports": [
+    {"text": "The laser cutter caught fire and the flames didn't go out", "equipment_id": "laser-01", "kind": "incident"}]},
+  {"id": "solder-burn-incident", "reports": [
+    {"text": "I burned my hand on the soldering iron", "equipment_id": "solder-01", "kind": "incident"}]},
+  {"id": "resin-eye-incident", "reports": [
+    {"text": "Resin splashed in my eye while pouring", "equipment_id": "resin-01", "kind": "incident"}]},
+  {"id": "kickback-near-miss", "reports": [
+    {"text": "Almost had a kickback ripping a narrow strip", "equipment_id": "saw-01", "kind": "near_miss"}]},
+  {"id": "laser-flare-near-miss", "reports": [
+    {"text": "Big flare-up on the laser cutting MDF, went out on its own", "equipment_id": "laser-01", "kind": "near_miss"}]},
+  {"id": "burn-marks-are-feedback", "reports": [
+    {"text": "The CNC router is leaving burn marks on plywood", "equipment_id": "cnc-01", "kind": "feedback"}]},
+  {"id": "extinguisher-missing-is-feedback", "reports": [
+    {"text": "The fire extinguisher by the laser is missing", "kind": "feedback"}]},
+  {"id": "smoke-extractor-broken-is-feedback", "reports": [
+    {"text": "The fume extractor on the soldering station is broken", "equipment_id": "solder-01", "kind": "feedback"}]}
+]
