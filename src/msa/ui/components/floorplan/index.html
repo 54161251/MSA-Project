@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Floor plan</title>
+<style>
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #bar { display: flex; gap: 8px; align-items: center; padding: 6px 2px; flex-wrap: wrap; }
+  button { font-size: 15px; padding: 6px 12px; border-radius: 6px; border: 1px solid #888;
+           background: #fff; cursor: pointer; }
+  button.primary { background: #0b5cad; color: #fff; border-color: #0b5cad; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #hint { font-size: 14px; color: #444; }
+  svg { width: 100%; height: auto; border: 1px solid #ccc; border-radius: 6px; touch-action: none; }
+  .label { pointer-events: none; font-weight: 600; }
+  .sub { pointer-events: none; }
+  .item { cursor: pointer; }
+  .edit .item { cursor: grab; }
+  .item:focus { outline: none; }
+  .item:focus > .shape { stroke: #0b5cad; stroke-width: 6; }
+</style>
+</head>
+<body>
+<div id="bar"></div>
+<svg id="plan" role="img" aria-label="Floor plan"></svg>
+<script>
+(function () {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.getElementById("plan");
+  const bar = document.getElementById("bar");
+  let args = null, items = [], dirty = false, selected = null, drag = null, lastKey = "";
+
+  function send(type, extra) {
+    window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, extra || {}), "*");
+  }
+  function setValue(v) { send("streamlit:setComponentValue", { value: v, dataType: "json" }); }
+  function setHeight() { send("streamlit:setFrameHeight", { height: document.body.scrollHeight + 10 }); }
+
+  const COLORS = { available: "#2e7d32", issue_reported: "#e65100", maintenance_due: "#e65100",
+                   out_of_service: "#b00020", retired: "#777" };
+  const STATUS_TXT = { available: "available", issue_reported: "issue reported",
+                       maintenance_due: "maintenance due", out_of_service: "OUT OF SERVICE",
+                       retired: "retired" };
+  const SAFETY_TXT = { extinguisher: "EXT", first_aid: "+ FIRST AID", eyewash: "EYEWASH",
+                       estop: "E-STOP", exit: "EXIT" };
+
+  function box() {
+    const b = args.image_box || {};
+    const W = args.image_w, H = args.image_h;
+    return { x0: b.x0 ?? 0, y0: b.y0 ?? 0, x1: b.x1 ?? W, y1: b.y1 ?? H };
+  }
+  function sx() { const b = box(); return (b.x1 - b.x0) / args.width_m; }
+  function sy() { const b = box(); return (b.y1 - b.y0) / args.height_m; }
+  function px(xm) { return box().x0 + xm * sx(); }
+  function py(ym) { return box().y0 + ym * sy(); }
+
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  function shape(it, g, color, flagged) {
+    const x = px(it.x), y = py(it.y), w = it.w * sx(), h = it.h * sy();
+    const common = { class: "shape", fill: color, "fill-opacity": it.kind === "object" ? 0.25 : 0.35,
+                     stroke: flagged ? "#b00020" : color, "stroke-width": flagged ? 5 : 3 };
+    if (flagged) common["stroke-dasharray"] = "14 8";
+    if (it.shape === "circle" || it.shape === "oval") {
+      el("ellipse", Object.assign({ cx: x + w / 2, cy: y + h / 2, rx: w / 2, ry: h / 2 }, common), g);
+    } else if (it.shape === "triangle") {
+      el("polygon", Object.assign({ points: `${x + w / 2},${y} ${x + w},${y + h} ${x},${y + h}` }, common), g);
+    } else {
+      el("rect", Object.assign({ x: x, y: y, width: w, height: h, rx: 4 }, common), g);
+    }
+  }
+
+  function draw() {
+    svg.innerHTML = "";
+    svg.setAttribute("viewBox", `0 0 ${args.image_w} ${args.image_h}`);
+    svg.classList.toggle("edit", args.mode === "edit");
+    if (args.image) el("image", { href: args.image, x: 0, y: 0, width: args.image_w, height: args.image_h }, svg);
+    const flagged = new Set(args.flagged || []);
+    // clearance zones first so machines draw on top
+    for (const it of items) {
+      if (!it.zone || !args.show_zones) continue;
+      const z = it.zone;
+      el("rect", { x: px(z.x0), y: py(z.y0), width: (z.x1 - z.x0) * sx(), height: (z.y1 - z.y0) * sy(),
+                   fill: "none", stroke: "#555", "stroke-dasharray": "6 6", "stroke-width": 2 }, svg);
+    }
+    for (const it of items) {
+      const g = el("g", { class: "item", tabindex: 0, role: "button",
+                          "aria-label": `${it.label || it.name || it.kind}${it.status ? ", " + STATUS_TXT[it.status] : ""}` }, svg);
+      const color = it.kind === "equipment" ? (COLORS[it.status] || "#0b5cad")
+                  : it.kind === "safety" ? "#00796b" : "#666";
+      shape(it, g, color, flagged.has(it.id));
+      const cx = px(it.x) + it.w * sx() / 2, cy = py(it.y) + it.h * sy() / 2;
+      let text = it.kind === "safety" ? (SAFETY_TXT[it.safety_type] || it.label) : (it.label || "");
+      if (it.kind === "equipment") text = (it.name || it.label || "").split(" (")[0];
+      const label = (flagged.has(it.id) ? "⚠ " : "") + text;
+      const wpx = Math.max(it.w * sx(), 60);
+      const size = Math.max(12, Math.min(22, (wpx * 1.7) / Math.max(4, label.length)));
+      const t = el("text", { x: cx, y: cy, "text-anchor": "middle", class: "label", fill: "#111",
+                             "font-size": size }, g);
+      t.textContent = label;
+      if (it.kind === "equipment" && it.status) {
+        const s = el("text", { x: cx, y: cy + size, "text-anchor": "middle", class: "sub", fill: color,
+                               "font-size": Math.max(11, size * 0.8) }, g);
+        s.textContent = STATUS_TXT[it.status] || it.status;
+      }
+      if (selected === it.id) {
+        el("rect", { x: px(it.x) - 6, y: py(it.y) - 6, width: it.w * sx() + 12, height: it.h * sy() + 12,
+                     fill: "none", stroke: "#0b5cad", "stroke-width": 4 }, g);
+      }
+      g.addEventListener("pointerdown", (ev) => startDrag(ev, it));
+      g.addEventListener("keydown", (ev) => onKey(ev, it));
+      g.addEventListener("click", () => { if (args.mode !== "edit") setValue({ action: "click", id: it.id, n: Date.now() }); });
+    }
+    drawBar();
+    setHeight();
+  }
+
+  function drawBar() {
+    bar.innerHTML = "";
+    if (args.mode !== "edit") {
+      bar.innerHTML = `<span id="hint">Click a machine or object for details.</span>`;
+      return;
+    }
+    const rot = document.createElement("button");
+    rot.textContent = "Rotate selected 90°";
+    rot.disabled = !selected;
+    rot.onclick = () => { const it = items.find(i => i.id === selected); if (it) rotate(it); };
+    const save = document.createElement("button");
+    save.textContent = dirty ? "Save layout" : "Saved";
+    save.className = "primary";
+    save.disabled = !dirty;
+    save.onclick = () => {
+      setValue({ action: "save", n: Date.now(),
+                 items: items.map(i => ({ id: i.id, x: i.x, y: i.y, rotation: i.rotation || 0 })) });
+      dirty = false; drawBar();
+    };
+    const hint = document.createElement("span");
+    hint.id = "hint";
+    hint.textContent = "Drag items to move them. Keyboard: Tab to an item, arrow keys move 0.1 m, R rotates.";
+    bar.append(rot, save, hint);
+  }
+
+  function rotate(it) {
+    it.rotation = ((it.rotation || 0) + 90) % 360;
+    const w = it.w; it.w = it.h; it.h = w;
+    it.zone = null;  // the server redraws the clearance zone exactly after saving
+    dirty = true; draw();
+  }
+
+  function snap(v) { return Math.round(v / 0.05) * 0.05; }
+
+  function startDrag(ev, it) {
+    selected = it.id;
+    if (args.mode !== "edit") return;
+    ev.preventDefault();
+    const pt = toSvg(ev);
+    drag = { it: it, dx: pt.x - px(it.x), dy: pt.y - py(it.y), zx: it.zone ? [it.zone.x0 - it.x, it.zone.y0 - it.y, it.zone.x1 - it.x, it.zone.y1 - it.y] : null };
+    svg.setPointerCapture(ev.pointerId);
+    draw();
+  }
+  svg.addEventListener("pointermove", (ev) => {
+    if (!drag) return;
+    const pt = toSvg(ev);
+    const it = drag.it;
+    it.x = Math.max(0, Math.min(args.width_m - it.w, snap((pt.x - drag.dx - box().x0) / sx())));
+    it.y = Math.max(0, Math.min(args.height_m - it.h, snap((pt.y - drag.dy - box().y0) / sy())));
+    if (drag.zx) it.zone = { x0: it.x + drag.zx[0], y0: it.y + drag.zx[1], x1: it.x + drag.zx[2], y1: it.y + drag.zx[3] };
+    dirty = true; draw();
+  });
+  svg.addEventListener("pointerup", () => { drag = null; });
+
+  function onKey(ev, it) {
+    if (args.mode !== "edit") { if (ev.key === "Enter") setValue({ action: "click", id: it.id, n: Date.now() }); return; }
+    const step = 0.1;
+    const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+    if (moves[ev.key]) {
+      ev.preventDefault();
+      selected = it.id;
+      it.x = Math.max(0, snap(it.x + moves[ev.key][0]));
+      it.y = Math.max(0, snap(it.y + moves[ev.key][1]));
+      if (it.zone) { const d = moves[ev.key]; it.zone = { x0: it.zone.x0 + d[0], y0: it.zone.y0 + d[1], x1: it.zone.x1 + d[0], y1: it.zone.y1 + d[1] }; }
+      dirty = true; draw();
+      const again = [...svg.querySelectorAll(".item")][items.indexOf(it)]; if (again) again.focus();
+    } else if (ev.key === "r" || ev.key === "R") { selected = it.id; rotate(it); }
+  }
+
+  function toSvg(ev) {
+    const p = svg.createSVGPoint(); p.x = ev.clientX; p.y = ev.clientY;
+    return p.matrixTransform(svg.getScreenCTM().inverse());
+  }
+
+  window.addEventListener("message", (event) => {
+    if (!event.data || event.data.type !== "streamlit:render") return;
+    const a = event.data.args;
+    const key = JSON.stringify([a.items, a.mode, a.flagged, a.show_zones, a.image_w]);
+    if (key === lastKey) return;  // ignore re-renders that don't change the plan
+    lastKey = key;
+    args = a;
+    items = JSON.parse(JSON.stringify(a.items || []));
+    dirty = false;
+    draw();
+  });
+  send("streamlit:componentReady", { apiVersion: 1 });
+})();
+</script>
+</body>
+</html>
