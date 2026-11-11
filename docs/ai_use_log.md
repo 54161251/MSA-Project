@@ -142,3 +142,23 @@ claimed here.
 and Ask agents and the evaluation suites, click through the R5 demo from the README quick start
 (ask as "priya", the Approvals page, `python -m eval.run`), and record here what was reviewed,
 changed or found wrong.
+
+## 2026-11-11: R5 hardening pass (Claude Sonnet 5.5, in a chat session; R5, Lluc)
+
+Lluc asked Claude to go over the R5 code (Review agent, Ask agent, escalation catalog, evaluation
+sets) and make it behave correctly. Claude probed Ask with about 50 hostile or odd questions and
+Review with tampered and malformed drafts, then fixed what failed. Found and fixed:
+* Ask: emergencies without a listed word ("I got electrocuted", "somebody fainted", "there is
+  smoke in the room", "blood everywhere") got a plain refusal with no 911 message or staff alert.
+* Ask / catalog: high-risk requests ("get around the interlock", "override the e-stop", "go get
+  lunch" while the laser runs, "guard off", "hack the firmware") were answered or sent to the wrong
+  code (E01/E03 instead of E04).
+* Ask: a "Yes" for a material dropped the manual's limit ("up to 6 mm"); "can I laser carbon
+  fiber" skipped the rules tool because it had no cut verb; "what do I do first?" skipped the
+  training check.
+* Review: crashed on malformed drafts (missing or non-dict citations, non-text statements); did
+  not notice a changed unit ("6 mm" -> "6 cm").
+Added 12 `rt-*` evaluation cases and about 70 regression tests. After the fixes: 164 tests pass,
+`ruff` is clean, and the offline suites pass 100 % (ask 36/36). The offline suites were not run with
+a real model in this session, and the new cases came from the probe, so they are not a held-out test.
+Not yet reviewed by Lluc.

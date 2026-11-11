@@ -41,6 +41,16 @@ QUALIFIERS = ["optional", "not required", "not needed", "unnecessary", "instead 
               "by hand", "without", "only if", "faster", "for speed", "anyway", "safe to eat",
               "food safe", "is fine", "it's fine"]
 NUMBER = re.compile(r"\d+(?:\.\d+)?")
+UNIT = (r"mm|cm|m|in|inch|inches|ft|feet|kg|g|lb|lbs|w|kw|v|a|amp|amps|hz|psi|bar|rpm|%|"
+        r"°c|°f|degrees|min|mins|minute|minutes|s|sec|secs|second|seconds|hours?|hrs?")
+NUMBER_UNIT = re.compile(rf"(\d+(?:\.\d+)?)\s*({UNIT})(?![a-z])", re.I)
+_UNIT_ALIASES = {"inch": "in", "inches": "in", "feet": "ft", "lbs": "lb", "amps": "a", "amp": "a",
+                 "mins": "min", "minute": "min", "minutes": "min", "secs": "s", "sec": "s",
+                 "second": "s", "seconds": "s", "hour": "h", "hours": "h", "hr": "h", "hrs": "h"}
+
+
+def _pairs(text: str) -> set[tuple[str, str]]:
+    return {(n, _UNIT_ALIASES.get(u.lower(), u.lower())) for n, u in NUMBER_UNIT.findall(text)}
 
 
 def support_score(statement: str, passage: str) -> float:
@@ -62,6 +72,10 @@ def meaning_changed(statement: str, passage: str) -> str | None:
     for n in NUMBER.findall(statement):
         if n not in NUMBER.findall(passage):
             return f"number {n} isn't in the source"
+    src_pairs = _pairs(passage)
+    for n, u in _pairs(statement):  # "6 cm" against a source that says "6 mm"
+        if (n, u) not in src_pairs and any(n == sn for sn, _ in src_pairs):
+            return f"number {n} {u} isn't in the source (it uses a different unit)"
     parts = [x for x in re.split(r"(?<=[.!?;])\s+", statement) if x.strip()] or [statement]
     for part in parts:  # compare each sentence of the statement with its closest source sentence
         best = _best_sentence(part, passage)
@@ -74,7 +88,7 @@ def meaning_changed(statement: str, passage: str) -> str | None:
 
 
 def _passage(db: Session, cite: dict) -> str | None:
-    doc = db.get(Document, cite.get("document_id", ""))
+    doc = db.get(Document, str(cite.get("document_id") or ""))
     if doc is None:
         return None
     for s in sections(doc):
@@ -96,7 +110,8 @@ _support_cache: dict[tuple, tuple[bool, str]] = {}
 def check_support(db: Session, text: str, cites: list[dict]) -> tuple[bool, str]:
     """Memoized: the SOP, training guide and materials list share statements, so the same
     (statement, source) pair is only judged once."""
-    key = (text, tuple(sorted((c.get("document_id", ""), c.get("locator", "")) for c in cites)))
+    key = (text, tuple(sorted((str(c.get("document_id", "")), str(c.get("locator", "")))
+                              for c in cites)))
     if key not in _support_cache:
         if len(_support_cache) > 5000:
             _support_cache.clear()
@@ -144,22 +159,41 @@ def staff_material_verdicts(db: Session, equipment_id: str) -> dict[str, tuple[s
     return out
 
 
+def _verify(db: Session, cite: dict) -> str | None:
+    try:
+        return verify_citation(db, cite, require_approved=False)
+    except (ValueError, TypeError, KeyError):  # pydantic ValidationError is a ValueError
+        return "citation is malformed"
+
+
 def review_document(db: Session, doc: Document) -> dict[str, Any]:
     eq = db.get(Equipment, doc.equipment_id) if doc.equipment_id else None
     category = eq.category if eq else "other"
     issues: list[dict[str, Any]] = []
     staff_rules = staff_material_verdicts(db, doc.equipment_id) if doc.equipment_id else {}
     checked = 0
-    for i, st in enumerate(doc.statements):
+    raw = doc.statements if isinstance(doc.statements, list) else []
+    for i, st in enumerate(raw):
+        if not isinstance(st, dict):  # a draft must never crash Review: flag it instead
+            issues.append({"doc_id": doc.id, "index": i, "code": "E07", "text": str(st)[:100],
+                           "why": "malformed statement"})
+            checked += 1
+            continue
         if st.get("kind") not in SAFETY_KINDS:
             continue
         checked += 1
-        cites = st.get("citations") or []
+        if not isinstance(st.get("text"), str) or not st["text"].strip():
+            issues.append({"doc_id": doc.id, "index": i, "code": "E07",
+                           "text": str(st.get("text"))[:100], "why": "safety statement has no text"})
+            continue
+        raw_cites = st.get("citations")
+        cites = [c for c in raw_cites if isinstance(c, dict)] if isinstance(raw_cites, list) else []
         if not cites:
             issues.append({"doc_id": doc.id, "index": i, "code": "E07", "text": st["text"],
                            "why": "safety statement has no citation"})
             continue
-        bad = [r for r in (verify_citation(db, c, require_approved=False) for c in cites) if r]
+        bad = [_verify(db, c) for c in cites]
+        bad = [r for r in bad if r]
         if len(bad) == len(cites):
             issues.append({"doc_id": doc.id, "index": i, "code": "E07", "text": st["text"],
                            "why": "; ".join(bad)})
@@ -185,7 +219,8 @@ def review_document(db: Session, doc: Document) -> dict[str, Any]:
                            "why": f"citation doesn't support it ({why})"})
     doc_level: list[dict[str, Any]] = []
     if doc.type == "sop":
-        v = tools.check_sop_rules(category, doc.statements)
+        clean = [x for x in raw if isinstance(x, dict) and isinstance(x.get("text"), str)]
+        v = tools.check_sop_rules(category, clean)
         for reason, rid in zip(v.reasons, v.rule_ids, strict=False):
             if rid.startswith("MAT-"):
                 continue  # already reported per statement

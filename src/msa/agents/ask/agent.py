@@ -33,11 +33,18 @@ MIN_SCORE = 2.0  # BM25 score below which a passage doesn't count as an answer
 URGENT = ["on fire", "is burning", "caught fire", "flames", "there's smoke", "smoke is coming",
           "smoking", "i cut myself", "cut my", "bleeding", "i burned", "burned my", "burnt my",
           "got shocked", "electric shock", "shocked me", "hurt myself", "got hurt", "is hurt",
-          "am hurt", "injured", "unconscious", "can't breathe", "in my eye", "in my eyes", "help!"]
-HOWTO = re.compile(r"\b(how (do|can|should) i|how to|can i|steps to|walk me through|what settings)\b",
+          "am hurt", "injured", "unconscious", "can't breathe", "cannot breathe", "in my eye",
+          "in my eyes", "help!", "smoke in the", "smoke from", "smoke is filling", "caught in the",
+          "got caught in", "caught my", "electrocuted", "fainted", "passed out", "broke my",
+          "broken bone", "blood", "bleed", "seizure", "choking", "not breathing", "chest pain",
+          "heart attack", "call 911", "call an ambulance", "need an ambulance", "amputat",
+          "crushed", "sliced", "gashed", "splashed in", "sparks and", "burned me", "burnt me"]
+HOWTO = re.compile(r"\b(how (do|can|should) i|how to|can i|steps to|walk me through|what settings|"
+                   r"what do i do|where do i start|get started|i want to (use|run|start|operate))\b",
                    re.I)
 MATERIAL_Q = re.compile(r"\b(can i|can we|is it ok|is it okay|is it safe|am i allowed|okay to|ok to)\b.*"
-                        r"\b(cut|engrave|etch|print|use|mill|drill|saw|sew|solder|route|machine|rip)\b",
+                        r"\b(cut|engrave|etch|print|use|mill|drill|saw|sew|solder|route|machine|rip|laser|burn|carve|"
+                        r"put|run|feed|process)\b",
                         re.I)
 
 
@@ -149,7 +156,9 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
             trace.append(f"tool:check_material({eq.id},{m}) -> {v.verdict}")
             label = m.replace("_", " ").upper() if len(m) <= 4 else m.replace("_", " ")
             if v.verdict == "allowed":
-                lines.append(f"Yes, {label} is approved for the {eq.name}.")
+                limits = " ".join(v.reasons).strip()  # e.g. "Allowed: plywood and MDF up to 6 mm."
+                lines.append(f"Yes, {label} is approved for the {eq.name}."
+                             + (f" The manual says: {limits}" if limits else ""))
                 ref = v.data.get("source_ref") or {}
                 if ref.get("document_id"):
                     cites.append(Citation(**ref))
