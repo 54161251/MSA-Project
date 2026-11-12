@@ -112,3 +112,74 @@ def test_messy_model_output_is_coerced_and_completed(db):
     mats = [s["text"] for s in sop.statements if s["section"] == "Material rules"]
     assert "Wood and plastics are fine." not in mats
     assert "Allowed: acrylic at low speed." in mats
+
+
+def _publish_all(db, staff):
+    for a in db.scalars(select(Approval).where(Approval.kind == "publish_doc",
+                                               Approval.status == "pending")).all():
+        decide_approval(db, a.id, True, staff)
+
+
+def _rules(db, eid):
+    return {r.material: r for r in
+            db.scalars(select(MaterialRule).where(MaterialRule.equipment_id == eid))}
+
+
+def test_material_rules_come_from_the_subject_not_the_qualifier(db):
+    """'Never: metal with the wood blade.' bans metals on the bandsaw, not wood."""
+    eq, _, _ = intake(db, "band-01", name="Bandsaw", brand="Kestrel", model_number="BX14",
+                      category="bandsaw")
+    _publish_all(db, make_user(db, role="staff"))
+    rules = _rules(db, eq.id)
+    assert "wood" not in rules
+    assert rules["aluminum"].verdict == "banned" and rules["steel"].verdict == "banned"
+    assert rules["softwood"].verdict == "allowed" and rules["acrylic"].verdict == "allowed"
+
+
+def test_house_rules_in_staff_notes_reach_the_sop_and_win(db):
+    eq = make_equipment(db, "drill-01", name="Drill", brand="Ironleaf", model_number="DP17",
+                        category="drill_press")
+    note = "- Never: acrylic. It cracks in our vise.\n- Book the drill before use."
+    orchestrator.run(db, "intake", {"equipment_id": eq.id, "staff_notes": [
+        {"title": "House rules", "text": note}]}, "staff")
+    sop = db.scalar(select(Document).where(Document.equipment_id == eq.id, Document.type == "sop"))
+    texts = {s["text"]: s["section"] for s in sop.statements}
+    assert texts.get("Never: acrylic. It cracks in our vise.") == "Material rules"
+    assert texts.get("Book the drill before use.") == "Warnings"
+    _publish_all(db, make_user(db, role="staff"))
+    rules = _rules(db, eq.id)
+    assert rules["acrylic"].verdict == "banned"
+    assert rules["steel"].verdict == "allowed"  # the rest of the manual's list still applies
+
+
+def test_pure_helpers():
+    from msa.agents.intake.drafting import rule_materials
+
+    assert parse_dims("800 x 600 x 400 mm") == (0.8, 0.6)
+    assert find_manual("Kestrel", "10") is None  # no partial-name matches
+    assert find_manual("Kestrel", "TS10").name == "kestrel-ts10.md"
+    assert rule_materials("Never: metal of any kind.") == ["aluminum", "steel", "brass", "copper"]
+    for bad in [("m.md", b""), ("m.pdf", b"%PDF-1.4 broken"), ("m.docx", b"PK\x03\x04\x00\x00")]:
+        try:
+            read_upload(*bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"{bad[0]} should be rejected")
+
+
+def test_new_equipment_ids_are_url_safe_and_modes_checked(db):
+    from fastapi import HTTPException
+
+    from msa.agents.intake.plugin import IntakeIn, ensure_equipment
+
+    eq = ensure_equipment(db, IntakeIn(name="Laser Cutter #2", id=""), "staff")
+    assert eq.id == "laser-cutter-2"
+    eq = ensure_equipment(db, IntakeIn(name="Saw", id="Saw/02"), "staff")
+    assert eq.id == "saw-02"
+    for body in (IntakeIn(name="X", approval_mode="sometimes"), IntakeIn(name="   ")):
+        try:
+            ensure_equipment(db, body, "staff")
+        except HTTPException as e:
+            assert e.status_code == 400
+        else:
+            raise AssertionError("expected a 400")
