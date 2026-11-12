@@ -11,17 +11,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from msa.agents.intake import agent  # noqa: F401  (registers intake + intake_revise)
-from msa.agents.intake.drafting import material_clause, material_verdict
-from msa.agents.intake.library import read_upload
+from msa.agents.intake.drafting import rule_materials, rule_verdict
+from msa.agents.intake.library import read_upload, slug
 from msa.core import orchestrator, training
 from msa.core.auth import create_user, require_staff
 from msa.core.config import DATA_DIR
-from msa.core.contracts import Citation
+from msa.core.contracts import ApprovalMode, Citation
 from msa.core.db import get_db, utcnow
 from msa.core.models import Approval, Document, Equipment, MaterialRule, User, to_dict
 from msa.core.registry import registry
 from msa.core.services import audit, decide_approval, emit, site_settings
-from msa.safety_tools.rules import find_materials
 
 router = APIRouter(prefix="/intake", tags=["intake"])
 
@@ -51,9 +50,14 @@ def ensure_equipment(db: Session, body: IntakeIn, actor: str) -> Equipment:
         if eq is None:
             raise HTTPException(404, "No such equipment")
         return eq
-    if not body.name:
+    if not (body.name or "").strip():
         raise HTTPException(400, "A name is needed for new equipment")
-    eid = body.id or (body.name.lower().replace(" ", "-")[:40])
+    if body.approval_mode not in {m.value for m in ApprovalMode}:
+        raise HTTPException(400, "approval_mode must be auto or competency_check")
+    # ids go into URLs (/intake/{id}/manual), so keep them to lowercase letters, digits and '-'
+    eid = slug(body.id or body.name)[:40].strip("-")
+    if not eid:
+        raise HTTPException(400, "Give the machine a short id such as laser-02")
     if db.get(Equipment, eid):
         raise HTTPException(400, f"Equipment id {eid} already exists")
     eq = Equipment(id=eid, name=body.name, brand=body.brand, model_number=body.model_number,
@@ -82,7 +86,10 @@ async def upload_manual(equipment_id: str, file: UploadFile = File(...), notes: 
     eq = db.get(Equipment, equipment_id)
     if eq is None:
         raise HTTPException(404, "No such equipment")
-    text = read_upload(file.filename or "manual", await file.read())
+    try:
+        text = read_upload(file.filename or "manual", await file.read())
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     payload = {"equipment_id": eq.id, "manual_text": text, "manual_filename": file.filename,
                "staff_notes": [{"title": "Staff notes", "text": notes}] if notes.strip() else []}
     final, results = orchestrator.run(db, "intake", payload, staff.id)
@@ -123,28 +130,55 @@ def reject(db: Session, approval: Approval, staff: User) -> None:
         doc.status = "rejected"
 
 
+def _from_staff(db: Session, st: dict) -> bool:
+    for c in st.get("citations") or []:
+        src = db.get(Document, c.get("document_id", "")) if isinstance(c, dict) else None
+        if src is not None and src.type == "staff_note":
+            return True
+    return False
+
+
 def rebuild_material_rules(db: Session, doc: Document, actor: str) -> int:
+    """One rule per material from the approved materials list.
+
+    * Only the line's subject counts ("Never: metal with the wood blade" bans metals, not wood).
+    * Staff house rules come before the manual's lines, so a house rule wins.
+    * Otherwise the first line about a material sets its verdict; a later line that disagrees is
+      kept in the rule's reason ("Exception: ...") so the member sees it when the tool answers.
+    * Lines with a verdict but no known material can't be checked by the tools; they are
+      listed in the audit entry so staff know they rely on people, not the material check."""
     for r in db.scalars(select(MaterialRule).where(MaterialRule.equipment_id == doc.equipment_id)).all():
         db.delete(r)
     db.flush()
-    n = 0
-    seen: set[str] = set()
-    for st in doc.statements:
-        verdict = material_verdict(st["text"])
+    ordered = sorted(doc.statements, key=lambda s: not _from_staff(db, s))  # stable
+    rules_by_mat: dict[str, MaterialRule] = {}
+    unmapped: list[str] = []
+    for st in ordered:
+        verdict = rule_verdict(st["text"])
         if verdict is None:
+            continue
+        mats = rule_materials(st["text"])
+        if not mats:
+            unmapped.append(st["text"])
             continue
         cite = st.get("citations", [{}])[0] if st.get("citations") else {}
         src = Citation(**cite).model_dump() if cite else {}
         src["document_id"] = cite.get("document_id", doc.id) if cite else doc.id
-        for mat in find_materials(material_clause(st["text"])):
-            if mat in seen:
+        for mat in mats:
+            rule = rules_by_mat.get(mat)
+            if rule is not None:
+                if rule.verdict != verdict and st["text"] not in rule.reason:
+                    rule.reason = f"{rule.reason} Exception: {st['text']}"
                 continue
-            seen.add(mat)
-            db.add(MaterialRule(equipment_id=doc.equipment_id, material=mat, verdict=verdict,
-                                reason=st["text"], source_ref=src, created_by=actor))
-            n += 1
+            rule = MaterialRule(equipment_id=doc.equipment_id, material=mat, verdict=verdict,
+                                reason=st["text"], source_ref=src, created_by=actor)
+            db.add(rule)
+            rules_by_mat[mat] = rule
     db.flush()
-    return n
+    audit(db, actor, "material_rules.rebuilt", "equipment", doc.equipment_id, None,
+          {"document_id": doc.id, "rules": {m: r.verdict for m, r in rules_by_mat.items()},
+           "not_checkable": unmapped})
+    return len(rules_by_mat)
 
 
 # --------------------------------------------------------------- seeding

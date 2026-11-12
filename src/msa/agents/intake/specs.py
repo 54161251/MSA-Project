@@ -13,17 +13,59 @@ from msa.core.models import Document
 REQUIRED = ["footprint"]
 CONFIDENCE_MIN = 0.7
 
-DIM = re.compile(r"(\d+(?:\.\d+)?)\s*(mm|cm|m|in|ft)?\s*[x×]\s*(\d+(?:\.\d+)?)\s*(mm|cm|m|in|ft)", re.I)
+_NUM = r"(\d+(?:\.\d+)?)\s*(mm|cm|m|in|ft)?"
+# width x depth, optionally x height: "1.45 m x 0.95 m", "800 x 600 x 400 mm"
+DIM = re.compile(_NUM + r"\s*[x×]\s*" + _NUM + r"(?:\s*[x×]\s*" + _NUM + r")?", re.I)
 TO_M = {"mm": 0.001, "cm": 0.01, "m": 1.0, "in": 0.0254, "ft": 0.3048}
+# a machine footprint outside this range (metres) is a misread, e.g. millimetres taken as metres
+FOOTPRINT_RANGE = (0.05, 10.0)
 
 
 def parse_dims(value: str) -> tuple[float, float] | None:
-    m = DIM.search(value)
-    if not m:
+    """Width and depth in metres. With three numbers the first two are taken (W x D x H), and a
+    unit written only at the end applies to all of them."""
+    for m in DIM.finditer(value):
+        units = [u.lower() for u in (m.group(2), m.group(4), m.group(6)) if u]
+        if not units:
+            continue
+        last = units[-1]
+        u1 = (m.group(2) or m.group(4) or last).lower()
+        u2 = (m.group(4) or last).lower()
+        return round(float(m.group(1)) * TO_M[u1], 3), round(float(m.group(3)) * TO_M[u2], 3)
+    return None
+
+
+def _conf(v: Any) -> float:
+    """Models write confidences as 0.9, "0.9", "90%" or "high"."""
+    if isinstance(v, bool):
+        return 1.0 if v else 0.0
+    if isinstance(v, (int, float)):
+        x = float(v)
+    else:
+        t = str(v).strip().lower()
+        words = {"high": 0.9, "medium": 0.6, "low": 0.3, "none": 0.0}
+        if t in words:
+            return words[t]
+        try:
+            x = float(t.rstrip("%"))
+        except ValueError:
+            return 0.0
+        if t.endswith("%"):
+            x /= 100
+    if x != x:  # NaN
+        return 0.0
+    if x > 1 and x <= 100:
+        x /= 100
+    return min(max(x, 0.0), 1.0)
+
+
+def plausible_footprint(fp: Any) -> list[float] | None:
+    try:
+        w, d = float(fp[0]), float(fp[1])
+    except (TypeError, ValueError, IndexError, KeyError):
         return None
-    u1 = (m.group(2) or m.group(4)).lower()
-    u2 = m.group(4).lower()
-    return round(float(m.group(1)) * TO_M[u1], 3), round(float(m.group(3)) * TO_M[u2], 3)
+    lo, hi = FOOTPRINT_RANGE
+    return [w, d] if lo <= w <= hi and lo <= d <= hi else None
 
 
 def deterministic_specs(manual: Document) -> dict[str, Any]:
@@ -42,7 +84,7 @@ def deterministic_specs(manual: Document) -> dict[str, Any]:
                 loc[key] = sec["locator"]
     fp = None
     if "footprint" in specs:
-        fp = parse_dims(specs["footprint"])
+        fp = plausible_footprint(parse_dims(specs["footprint"]))
         if fp is None:
             conf["footprint"] = 0.3
     else:
@@ -62,16 +104,15 @@ def extract_specs(manual: Document) -> dict[str, Any]:
     fallback = deterministic_specs(manual)
     out = get_llm().complete_json("intake.extract_specs", SYSTEM, manual.body[:12000],
                                   lambda: fallback)
+    if not isinstance(out, dict):
+        out = {}
     if not isinstance(out.get("specs"), dict):
         out["specs"] = {}
-    if not isinstance(out.get("confidence"), dict):
-        out["confidence"] = {}
+    out["confidence"] = {str(k): _conf(v) for k, v in out["confidence"].items()} \
+        if isinstance(out.get("confidence"), dict) else {}
     out.setdefault("locators", fallback.get("locators", {}))
     fp = out.get("footprint_m")
-    try:
-        fp = [float(fp[0]), float(fp[1])] if isinstance(fp, (list, tuple)) and len(fp) == 2 else None
-    except (TypeError, ValueError):
-        fp = None
+    fp = plausible_footprint(fp) if isinstance(fp, (list, tuple)) and len(fp) == 2 else None
     out["footprint_m"] = fp
     # A value the deterministic parser read exactly from the spec table always wins: the model
     # may add fields, but it can't make a clearly stated footprint "uncertain" (or change it).

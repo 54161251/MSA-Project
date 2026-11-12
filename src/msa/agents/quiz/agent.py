@@ -18,7 +18,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from msa.agents.intake.drafting import material_clause, material_verdict
+from msa.agents.intake.drafting import rule_materials, rule_verdict
 from msa.core import training
 from msa.core.contracts import AgentResult
 from msa.core.db import new_id, utcnow
@@ -27,7 +27,6 @@ from msa.core.llm import get_llm
 from msa.core.models import Equipment, QuizAttempt, QuizBank, User
 from msa.core.registry import registry
 from msa.core.services import ServiceError, request_approval
-from msa.safety_tools.rules import find_materials
 
 MAX_QUESTIONS = 15
 RETAKE_HOURS = 24
@@ -68,13 +67,18 @@ def deterministic_questions(eq: Equipment, statements: list[dict[str, Any]],
                    "prompt": prompt, "options": opts, "answer_index": ans, "kind": kind,
                    "citations": st.get("citations", []) if st else []})
 
-    allowed, banned = [], []
+    verdicts: dict[str, set[str]] = {}
+    first: dict[str, dict] = {}
     for st in statements:
-        if st.get("kind") == "material":
-            v = material_verdict(st["text"])
-            for m in find_materials(material_clause(st["text"])):
-                (allowed if v == "allowed" else banned if v == "banned" else [])\
-                    .append((m.replace("_", " "), st))
+        if st.get("kind") == "material" and st.get("citations"):
+            v = rule_verdict(st["text"])
+            for m in rule_materials(st["text"]):
+                verdicts.setdefault(m, set()).add(v or "")
+                first.setdefault(m, st)
+    # a material the list treats two ways ("Allowed: standard resin" / "Never: resin you brought
+    # from home") has no single right answer, so it isn't asked about
+    allowed = [(m.replace("_", " "), first[m]) for m, v in verdicts.items() if v == {"allowed"}]
+    banned = [(m.replace("_", " "), first[m]) for m, v in verdicts.items() if v == {"banned"}]
     for mat, st in banned:
         wrong = [a for a, _ in allowed if a != mat]
         add(f"Which material must never be used on the {name}?", mat, wrong, st, "material")
@@ -91,8 +95,6 @@ def deterministic_questions(eq: Equipment, statements: list[dict[str, Any]],
         k = st.get("kind")
         if k in prompts and st.get("citations"):
             add(prompts[k], st["text"], WRONG[k], st, k)
-    if "material" in guidelines.lower():
-        qs.sort(key=lambda q: q["kind"] != "material")
     # one question per correct answer text
     seen, out = set(), []
     for q in qs:
@@ -100,7 +102,28 @@ def deterministic_questions(eq: Equipment, statements: list[dict[str, Any]],
         if key not in seen:
             seen.add(key)
             out.append(q)
-    return out[:MAX_QUESTIONS]
+    return balanced(out, guidelines)
+
+
+# Bank order: every kind gets a turn, materials twice per round (they drive the material check).
+# Without this a laser bank filled up with material and PPE questions and had none on
+# operation or emergencies.
+KIND_CYCLE = ["material", "ppe", "warning", "material", "step", "emergency"]
+
+
+def balanced(questions: list[dict], guidelines: str = "", limit: int = MAX_QUESTIONS) -> list[dict]:
+    queues: dict[str, list[dict]] = {}
+    for q in questions:
+        queues.setdefault(q.get("kind") or "other", []).append(q)
+    out: list[dict] = []
+    if "material" in guidelines.lower():  # staff asked for a material focus
+        out += queues.pop("material", [])[:limit]
+    cycle = KIND_CYCLE + sorted(k for k in queues if k not in KIND_CYCLE)
+    while len(out) < limit and any(queues.values()):
+        for kind in cycle:
+            if queues.get(kind) and len(out) < limit:
+                out.append(queues[kind].pop(0))
+    return out[:limit]
 
 
 SYSTEM = (
@@ -128,8 +151,8 @@ def generate(db: Session, payload: dict, actor: str) -> AgentResult:
         "quiz.generate", SYSTEM,
         f"Machine: {eq.name}\nStaff guidelines: {guidelines or 'none'}\n\nStatements:\n{numbered}",
         lambda: fallback, max_tokens=8000)
-    questions = _validate(out.get("questions", []), statements) if out is not fallback else \
-        fallback["questions"]
+    questions = _validate(out.get("questions", []), statements, guidelines) \
+        if out is not fallback else fallback["questions"]
     if not questions:
         questions = fallback["questions"]
     prev = db.scalar(select(QuizBank).where(QuizBank.equipment_id == eq.id)
@@ -146,21 +169,29 @@ def generate(db: Session, payload: dict, actor: str) -> AgentResult:
                        trace=[f"llm:quiz.generate -> {len(questions)} questions"])
 
 
-def _validate(raw: list[dict], statements: list[dict]) -> list[dict]:
+def _validate(raw: list[dict], statements: list[dict], guidelines: str = "") -> list[dict]:
     out = []
+    if not isinstance(raw, list):
+        return out
     for q in raw:
         try:
-            src = statements[int(q["source_index"])]
-            opts = [str(o) for o in q["options"]]
-            ans = int(q["answer_index"])
-            if len(opts) < 2 or not 0 <= ans < len(opts) or not src.get("citations"):
+            i = int(q["source_index"])
+            if not 0 <= i < len(statements):  # a negative index would silently pick another line
                 continue
-            out.append({"id": new_id()[:12], "prompt": str(q["prompt"]), "options": opts,
+            src = statements[i]
+            opts = [" ".join(str(o).split()) for o in q["options"]][:6]
+            ans = int(q["answer_index"])
+            prompt = " ".join(str(q["prompt"]).split())
+            if not prompt or len(opts) < 2 or not 0 <= ans < len(opts) or not src.get("citations"):
+                continue
+            if any(not o for o in opts) or len({o.lower() for o in opts}) != len(opts):
+                continue  # blank or repeated options make the answer ambiguous
+            out.append({"id": new_id()[:12], "prompt": prompt, "options": opts,
                         "answer_index": ans, "kind": src.get("kind"),
                         "citations": src["citations"]})
-        except (KeyError, ValueError, IndexError, TypeError):
+        except (KeyError, ValueError, IndexError, TypeError, AttributeError):
             continue
-    return out[:MAX_QUESTIONS]
+    return balanced(out, guidelines)
 
 
 # ------------------------------------------------------------------ attempts
@@ -188,16 +219,42 @@ def start_attempt(db: Session, user: User, equipment_id: str) -> tuple[QuizAttem
             utcnow() - last_fail.submitted_at < timedelta(hours=RETAKE_HOURS):
         wait = timedelta(hours=RETAKE_HOURS) - (utcnow() - last_fail.submitted_at)
         raise ServiceError(f"You can retake this quiz in {int(wait.total_seconds() // 3600) + 1} hours")
+    by_id = {q["id"]: q for q in bank.questions}
+    # An open attempt is resumed, not redrawn: otherwise starting again and again shows the
+    # whole bank before submitting, and abandoning an attempt sidesteps the retake wait.
+    open_attempt = db.scalar(select(QuizAttempt).where(
+        QuizAttempt.user_id == user.id, QuizAttempt.equipment_id == equipment_id,
+        QuizAttempt.bank_id == bank.id, QuizAttempt.submitted_at.is_(None))
+        .order_by(QuizAttempt.created_at.desc()).limit(1))
+    if open_attempt is not None and all(q in by_id for q in open_attempt.question_ids or []) \
+            and open_attempt.question_ids:
+        chosen = [by_id[q] for q in open_attempt.question_ids]
+        return open_attempt, _public(chosen)
     attempt = QuizAttempt(user_id=user.id, equipment_id=equipment_id, bank_id=bank.id,
                           created_by=user.id)
-    rng = random.Random(new_id())
-    n = min(bank.draw_count or 10, len(bank.questions))
-    chosen = rng.sample(bank.questions, n)
+    chosen = draw(bank.questions, bank.draw_count or 10, random.Random(new_id()))
     attempt.question_ids = [q["id"] for q in chosen]
     db.add(attempt)
     db.flush()
-    public = [{"id": q["id"], "prompt": q["prompt"], "options": q["options"]} for q in chosen]
-    return attempt, public
+    return attempt, _public(chosen)
+
+
+def _public(chosen: list[dict]) -> list[dict]:
+    return [{"id": q["id"], "prompt": q["prompt"], "options": q["options"]} for q in chosen]
+
+
+def draw(questions: list[dict], count: int, rng: random.Random) -> list[dict]:
+    """Random draw that covers every kind in the bank when there is room (one per kind first,
+    then the rest at random), so an attempt can't skip emergencies or PPE by chance."""
+    n = min(count, len(questions))
+    kinds: dict[str, list[dict]] = {}
+    for q in questions:
+        kinds.setdefault(q.get("kind") or "other", []).append(q)
+    picked = [rng.choice(qs) for qs in kinds.values()] if len(kinds) <= n else []
+    rest = [q for q in questions if q not in picked]
+    picked += rng.sample(rest, n - len(picked))
+    rng.shuffle(picked)
+    return picked
 
 
 def submit_attempt(db: Session, user: User, attempt_id: str, answers: dict[str, int]) -> dict:

@@ -62,15 +62,34 @@ def bullets(text: str) -> list[str]:
     return [i for i in items if len(i) > 2]
 
 
+PPE_WORDS = re.compile(r"\b(glasses|goggles|gloves?|respirator|mask|ear (?:plugs|defenders|protection)|"
+                       r"hearing protection|apron|closed[- ]toe|shoes|hair (?:tied|back)|sleeves|"
+                       r"jewel(?:le)?ry|face shield)\b", re.I)
+EMERGENCY_WORDS = re.compile(r"\b(emergency|fire|extinguisher|injur\w*|bleed\w*|burns?|first aid|"
+                             r"call|evacuat\w*|e-stop|emergency stop)\b", re.I)
+
+
+def classify_staff_line(text: str) -> tuple[str, str]:
+    """(SOP section, kind) for a staff-note line whose heading isn't a manual heading
+    ("House rules", "Staff notes"). House rules must reach the SOP, not be dropped."""
+    if rule_verdict(text) and rule_materials(text):
+        return "Material rules", "material"
+    if EMERGENCY_WORDS.search(text):
+        return "Emergency", "emergency"
+    if PPE_WORDS.search(text):
+        return "PPE", "ppe"
+    return "Warnings", "warning"
+
+
 def deterministic_statements(sources: list[Document]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for doc in sources:
         for sec in sections(doc):
             mapped = map_heading(sec["heading"])
-            if mapped is None:
+            if mapped is None and doc.type != "staff_note":
                 continue
-            section, kind = mapped
             for b in bullets(sec["text"]):
+                section, kind = mapped or classify_staff_line(b)
                 c = citation_for(doc, sec, b)
                 out.append(Statement(section=section, kind=kind, text=b,
                                      citations=[c]).model_dump())
@@ -116,20 +135,28 @@ def draft_sop_statements(eq: Equipment, sources: list[Document]) -> list[dict[st
                 fixed.append(hit)
         s.citations = fixed  # unresolvable citations are dropped, so Review flags the line (E07)
         clean.append(s.model_dump())
-    return complete_with_manual(clean, deterministic_statements(sources))
+    staff = deterministic_statements([d for d in sources if d.type == "staff_note"])
+    return complete_with_manual(clean, deterministic_statements(sources), keep=staff)
 
 
-def complete_with_manual(drafted: list[dict[str, Any]], manual: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def complete_with_manual(drafted: list[dict[str, Any]], manual: list[dict[str, Any]],
+                         keep: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     """Safety rules don't depend on the model's wording:
     * the Material rules section is always the manual's own lines (they become the machine's
       material rules, so they must be exact);
-    * any required section the model left out is filled with the manual's cited lines."""
+    * any required section the model left out is filled with the manual's cited lines;
+    * staff notes (house rules) in `keep` are always included word for word."""
     out = [s for s in drafted if s["section"] != "Material rules"]
     out += [m for m in manual if m["section"] == "Material rules"]
     present = {s["section"] for s in out}
     for m in manual:
         if m["section"] not in present:
             out.append(m)
+    texts = {s["text"] for s in out}
+    for k in keep or []:
+        if k["text"] not in texts:
+            out.append(k)
+            texts.add(k["text"])
     order = {sec: i for i, sec in enumerate(SOP_SECTIONS)}
     out.sort(key=lambda s: order.get(s["section"], 99))
     return out
@@ -283,6 +310,46 @@ def material_verdict(text: str) -> str | None:
 def material_clause(text: str) -> str:
     """'Never: PVC or vinyl. It releases chlorine gas.' -> 'Never: PVC or vinyl' (no reasons)."""
     return re.split(r"\.(?:\s|$)", text, maxsplit=1)[0]
+
+
+# Words that start a qualifier after the material list: "metal WITH the wood blade",
+# "acrylic UP TO 10 mm", "ABS filament, ONLY with the fan on", "resin YOU brought from home".
+_QUALIFIER = re.compile(
+    r"(?:,\s*)?\b(?:with|without|using|from|you|your|that|which|unless|only|for|when|if|at|near|"
+    r"after|before|except|while|up to)\b|[(;]", re.I)
+_METAL = re.compile(r"\bmetals?\b", re.I)
+METALS = ("aluminum", "steel", "brass", "copper")
+
+
+def material_subject(text: str) -> str:
+    """The materials a rule line is about, without its reason or qualifiers:
+    'Never: metal with the wood blade.' -> 'metal' (the wood blade is a tool, not a material)."""
+    clause = material_clause(text)
+    # "Allowed: X", "Ask staff: X", "Allowed (with staff present): X" -> X
+    body = clause.split(":", 1)[1] if ":" in clause[:40] else clause
+    return _QUALIFIER.split(body, maxsplit=1)[0].strip(" ,.")
+
+
+def rule_materials(text: str) -> list[str]:
+    """Known materials a rule line applies to. A generic "metal" covers every metal the safety
+    tables know. Dropping a qualifier's material can only leave it without a rule, which the
+    material check treats as "unknown, ask staff", never as allowed."""
+    from msa.safety_tools.rules import find_materials, rules
+
+    subject = material_subject(text)
+    found = find_materials(subject)
+    if _METAL.search(subject):
+        known = rules().get("materials", {})
+        found += [m for m in METALS if m in known and m not in found]
+    return found
+
+
+def rule_verdict(text: str) -> str | None:
+    """material_verdict, plus "No X" / "Never X" without a colon (common in house rules)."""
+    v = material_verdict(text)
+    if v is None and re.match(r"^\s*(no|never)\b", text, re.I):
+        return "banned"
+    return v
 
 
 def render_markdown(title: str, statements: list[dict[str, Any]]) -> str:
