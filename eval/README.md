@@ -71,3 +71,13 @@ and accepted a changed unit ("6 mm" -> "6 cm"). All were fixed with regression t
 `tests/agents/test_ask_hardening.py`, `tests/agents/test_review_hardening.py` and
 `tests/core/test_escalation_catalog.py`. **These cases came from the probe, so like the
 others they are no longer a held-out test.**
+
+## Cross-check additions (2026-11-15)
+
+Six `cc-*` cases were added to `sets/project_check.json` and three to `sets/triage.json` after
+probing every agent and every API route. Found and fixed: Project Check cleared material thicker
+than the manual allows (12 mm plywood on a 6 mm limit), called a plan it could not read "fine",
+missed "tape down the lid switch" and "without the riving knife", and read "leather (chrome
+tanned)" as plain leather; Triage filed a flame as feedback and "sparks came out of" as out of
+stock. Regression tests are in `tests/test_cross_check_hardening.py`. As before, these cases came
+from the probe, so they are not a held-out test.

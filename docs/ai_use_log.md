@@ -162,3 +162,28 @@ Added 12 `rt-*` evaluation cases and about 70 regression tests. After the fixes:
 `ruff` is clean, and the offline suites pass 100 % (ask 36/36). The offline suites were not run with
 a real model in this session, and the new cases came from the probe, so they are not a held-out test.
 Not yet reviewed by Lluc.
+
+## 2026-11-15: Cross-team check and fixes (Claude Fable 5.2, in a chat session; started by Lluc)
+
+Lluc gave Claude the six role packages (R1 to R6) and asked it to check that the repository
+matches them, fix what is wrong and improve weak spots. Claude compared every file in the six
+packages with `main` (all present; the only differences are the later R5 hardening and R4
+improvement pull requests), ran the tests, lint and offline evaluation, called every API route as
+a guest, a member and a staff user with valid and malformed input, and probed Project Check,
+Triage and Ask with about 80 hostile or odd inputs. Access control held on every route. Found and
+fixed:
+* Project Check (R3): cleared material thicker than the manual allows (12 mm plywood on a 6 mm
+  limit); answered "Your plan looks fine" to a plan in which it recognized no machine or material;
+  read "leather (chrome tanned)" as plain leather.
+* Escalation catalog (R1/R5): "tape down the lid switch", "without the riving knife" and "take the
+  guard off" were not high-risk (E04).
+* Triage (R6): a small flame was filed as feedback; "sparks came out of the motor" was filed as
+  out of stock; "doesnt work", noises and leaks had no issue type.
+* Ask (R5): narrowed emergency words Claude itself added on 2026-11-11 that would raise false
+  alarms ("crushed velvet", "filament got caught in the extruder", "smoke from the laser").
+* API: adding or renaming an inventory item to an existing name (R6) and adding a floor plan
+  object with an unknown machine id (R2) returned a server error instead of a clear message.
+Added 34 regression tests and 9 evaluation cases. After the fixes: 204 tests pass, `ruff` is
+clean, and the offline suites pass 100 % (ask 36, project check 26, review 26, triage 15). Not run
+with a real model in this session. These changes touch other members' parts (R1, R2, R3, R6) and
+have not been reviewed by those owners or by Lluc.

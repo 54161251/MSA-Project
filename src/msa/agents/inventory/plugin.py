@@ -64,6 +64,13 @@ def item_row(db: Session, it: InventoryItem) -> dict:
     return {**to_dict(it), **agent.forecast(db, it)}
 
 
+def _unique_name(db: Session, name: str) -> None:
+    if not name.strip():
+        raise HTTPException(400, "The item needs a name")
+    if db.scalar(select(InventoryItem).where(InventoryItem.name == name)) is not None:
+        raise HTTPException(400, f"An item called {name!r} already exists")
+
+
 @router.get("")
 def items(user: User = Depends(current_user), db: Session = Depends(get_db)):
     q = select(InventoryItem).where(InventoryItem.active.is_(True)).order_by(InventoryItem.category,
@@ -80,6 +87,7 @@ def use(body: UseIn, user: User = Depends(current_user), db: Session = Depends(g
 @router.post("/items")
 def add_item(body: ItemIn, staff: User = Depends(require_staff), db: Session = Depends(get_db)):
     data = body.model_dump()
+    _unique_name(db, data["name"])
     start = data.pop("starting_qty")
     it = InventoryItem(created_by=staff.id, **data)
     db.add(it)
@@ -98,6 +106,8 @@ def edit_item(item_id: str, body: ItemPatch, staff: User = Depends(require_staff
     if it is None:
         raise HTTPException(404, "No such item")
     changes = body.model_dump(exclude_none=True)
+    if "name" in changes and changes["name"] != it.name:
+        _unique_name(db, changes["name"])
     for k, v in changes.items():
         setattr(it, k, v)
     audit(db, staff.id, "inventory.item_edit", "inventory_item", it.id, None, changes)

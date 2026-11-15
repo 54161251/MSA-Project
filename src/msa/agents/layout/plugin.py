@@ -154,6 +154,10 @@ def add_item(plan_id: str, body: ItemIn, staff: User = Depends(require_staff), d
     if plan is None:
         raise HTTPException(404, "No such floor plan")
     f = TO_M.get(body.units, 1.0)
+    if body.kind not in ("equipment", "object", "safety"):
+        raise HTTPException(400, "kind must be equipment, object or safety")
+    if body.kind != "equipment":
+        body.equipment_id = None
     if body.kind == "equipment":
         eq = db.get(Equipment, body.equipment_id or "")
         if eq is None:
