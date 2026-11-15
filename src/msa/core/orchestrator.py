@@ -62,7 +62,15 @@ def _run_node(state: FlowState) -> FlowState:
         res = AgentResult(agent=agent, status="error", output={"error": f"no agent {agent!r}"})
         return {"results": results + [res.model_dump()], "runs": runs, "stopped": "unknown"}
     try:
-        res = fn(db, state.get("payload", {}), state.get("actor", "system"))
+        connection = db.connection()
+        if connection.dialect.name == "sqlite":
+            # SQLite's legacy transaction mode can release the first savepoint
+            # as a commit unless a real outer transaction already exists.
+            driver = connection.connection.driver_connection
+            if not driver.in_transaction:
+                connection.exec_driver_sql("BEGIN")
+        with db.begin_nested():
+            res = fn(db, state.get("payload", {}), state.get("actor", "system"))
     except Exception as exc:  # an agent crash becomes an escalation, never a silent pass
         escalate(db, "E14", "agent", agent, f"{type(exc).__name__}: {exc}"[:400], "orchestrator")
         res = AgentResult(agent=agent, status="error", escalations=["E14"],
