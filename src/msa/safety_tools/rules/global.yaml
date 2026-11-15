@@ -54,7 +54,7 @@ materials:
   cardboard: [cardboard, chipboard]
   paper: [paper, cardstock]
   leather_veg_tan: [leather, veg-tan leather, vegetable tanned leather, vegetable-tanned leather]
-  leather_chrome_tan: [chrome-tanned leather, chrome tanned leather, chrome leather]
+  leather_chrome_tan: [chrome-tanned leather, chrome tanned leather, chrome leather, chrome-tanned, chrome tanned, chrome tan, chrome-tan]
   cotton_fabric: [cotton, fabric, felt, canvas, denim]
   pvc: [pvc, vinyl sheet, vinyl record, pleather, faux leather, polyvinyl chloride]
   polycarbonate: [polycarbonate, lexan, makrolon]

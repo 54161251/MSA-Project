@@ -103,6 +103,32 @@ def split_steps(description: str, machines) -> list[dict[str, Any]]:
     return steps
 
 
+_TO_MM = {"mm": 1.0, "cm": 10.0, "in": 25.4, "inch": 25.4, "inches": 25.4, '"': 25.4}
+_SIZE = r"(\d+(?:\.\d+)?)\s*(mm|cm|inches|inch|in|\")"
+_LIMIT = re.compile(r"up to\s+" + _SIZE, re.I)
+
+
+def over_thickness(step_text: str, material: str, rule_text: str) -> tuple[str, str] | None:
+    """('12 mm', '6 mm') when the member states a thickness above the approved limit.
+
+    Only a size written as a thickness counts ("12 mm thick", "12 mm plywood"), so the width or
+    length of a part ("a 300 mm wide plywood panel") is not mistaken for one."""
+    lim = _LIMIT.search(rule_text or "")
+    if not lim:
+        return None
+    limit_mm = float(lim.group(1)) * _TO_MM[lim.group(2).lower()]
+    words = "|".join(re.escape(w) for w in material.lower().split("_") if len(w) > 2) or "sheet"
+    thick = re.compile(_SIZE + r"(?:[\s-]+thick\b|(?:\s+(?!wide|long|tall|high|by|x)[a-z-]+){0,2}"
+                       r"\s+(?:" + words + r"|sheet|board|stock|panel)\b)", re.I)
+    for m in thick.finditer(step_text):
+        mm = float(m.group(1)) * _TO_MM[m.group(2).lower()]
+        if mm > 100 and "thick" not in m.group(0).lower():
+            continue  # "600 mm plywood board" is a length, not a thickness
+        if mm > limit_mm + 1e-9:
+            return f"{m.group(1)} {m.group(2)}", f"{lim.group(1)} {lim.group(2)}"
+    return None
+
+
 def pick_machine(db: Session, category: str | None, equipment_id: str | None) -> Equipment | None:
     if equipment_id:
         eq = db.get(Equipment, equipment_id)
@@ -185,7 +211,12 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
                 ref = mv.data.get("source_ref") or {}
                 cites = [Citation(**ref)] if ref.get("document_id") else []
                 citations.extend(cites)
-                add(i, "ok", f"{label} is approved for the {eq.name}.", mv.rule_ids, None, cites)
+                over = over_thickness(st["text"], mat, " ".join(mv.reasons))
+                if over:  # approved material, but thicker than the manual's limit: staff decide
+                    add(i, "high", f"{label} is approved for the {eq.name} only up to {over[1]}; "
+                        f"this plan uses {over[0]}.", [*mv.rule_ids, "MAT-THICKNESS"], "E01", cites)
+                else:
+                    add(i, "ok", f"{label} is approved for the {eq.name}.", mv.rule_ids, None, cites)
         pv = tools.required_ppe(db, eq.id)
         trace.append(f"tool:required_ppe({eq.id}) -> {pv.verdict}")
         items = pv.data.get("items", [])
@@ -202,6 +233,15 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
             # high-severity combinations need a staff member to look first (E04)
             add(None, sev, rule["text"], [rule["id"]], "E04" if sev == "high" else None)
 
+    if not findings and not project_cats:
+        # Nothing was recognized: no machine, material or process. "Looks fine" would be a
+        # default-to-safe answer (G3), so ask the member to be specific instead.
+        return AgentResult(
+            agent="project_check", status="refused", trace=trace,
+            output={"needs_clarification": True, "steps": steps, "findings": [],
+                    "message": "I couldn't tell which machines or materials this plan uses, so I "
+                               "can't check it. Name each machine (for example \"laser cutter\") "
+                               "and material, or ask a staff member."})
     blocking = {c for c in codes if escalations.get(c).blocking}
     if blocking:
         verdict = "needs_staff"

@@ -34,11 +34,16 @@ URGENT = ["on fire", "is burning", "caught fire", "flames", "there's smoke", "sm
           "smoking", "i cut myself", "cut my", "bleeding", "i burned", "burned my", "burnt my",
           "got shocked", "electric shock", "shocked me", "hurt myself", "got hurt", "is hurt",
           "am hurt", "injured", "unconscious", "can't breathe", "cannot breathe", "in my eye",
-          "in my eyes", "help!", "smoke in the", "smoke from", "smoke is filling", "caught in the",
-          "got caught in", "caught my", "electrocuted", "fainted", "passed out", "broke my",
-          "broken bone", "blood", "bleed", "seizure", "choking", "not breathing", "chest pain",
-          "heart attack", "call 911", "call an ambulance", "need an ambulance", "amputat",
-          "crushed", "sliced", "gashed", "splashed in", "sparks and", "burned me", "burnt me"]
+          "in my eyes", "help!", "smoke in the", "smoke is filling", "caught my", "electrocuted",
+          "fainted", "passed out", "broke my",
+          "broken bone", "blood", "seizure", "choking", "not breathing", "chest pain",
+          "heart attack", "call 911", "call an ambulance", "need an ambulance", "amputated",
+          "crushed my", "got crushed", "sliced my", "sliced open", "gashed", "splashed in",
+          "sparks and", "burned me", "burnt me"]
+# "my arm got caught in the machine" is an emergency; "filament got caught in the extruder" is not
+CAUGHT = re.compile(r"\b(arm|hand|hands|finger|fingers|thumb|hair|sleeve|shirt|clothes|clothing|"
+                    r"glove|gloves|scarf|necklace|lanyard)\b[^.?!]{0,25}\b(caught|pulled into|"
+                    r"sucked into|trapped|stuck) in\b", re.I)
 HOWTO = re.compile(r"\b(how (do|can|should) i|how to|can i|steps to|walk me through|what settings|"
                    r"what do i do|where do i start|get started|i want to (use|run|start|operate))\b",
                    re.I)
@@ -50,6 +55,8 @@ MATERIAL_Q = re.compile(r"\b(can i|can we|is it ok|is it okay|is it safe|am i al
 
 def is_emergency(text: str) -> bool:
     t = text.lower()
+    if CAUGHT.search(t):
+        return True
     return any(re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])", t) for w in URGENT)
 
 

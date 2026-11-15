@@ -33,15 +33,24 @@ INCIDENT_WORDS = ["caught fire", "on fire", "a fire", "fire started", "flames", 
                   "burnt my", "burned myself", "got burned", "cut my", "cut myself", "cut himself",
                   "cut herself", "bleeding", "injur", "got a shock", "shocked", "smoke coming",
                   "was smoking", "started smoking", "hospital", "stitches", "hurt my", "got hurt",
-                  "hurt himself", "hurt herself", "first aid", "fainted", "in my eye"]
+                  "hurt himself", "hurt herself", "first aid", "fainted", "in my eye", "flame",
+                  "electric shock"]
 NEAR_MISS_WORDS = ["almost", "nearly", "close call", "near miss", "near-miss", "flare-up", "flare up",
-                   "kickback", "kicked back", "could have", "barely"]
+                   "kickback", "kicked back", "could have", "barely", "sparks", "sparking", "sparked",
+                   "burning smell", "smelled burning", "smelt burning", "smell of burning",
+                   "smells like burning", "scorch", "left the laser running", "running unattended",
+                   "left unattended"]
 ISSUE_TYPES: list[tuple[str, list[str]]] = [
-    ("out_of_stock", ["out of", "ran out", "none left", "empty", "no more"]),
+    ("out_of_stock", ["out of stock", "is out of", "are out of", "we're out of", "all out of",
+                      "ran out", "run out", "none left", "empty", "no more"]),
     ("running_low", ["running low", "low on", "almost out", "getting low", "only one left"]),
     ("not_working", ["not working", "doesn't work", "won't", "broken", "not firing", "dead",
                      "jammed", "jam", "stuck", "error", "not heating", "won't turn on", "failed",
-                     "isn't working", "stopped working", "clogged", "not cutting"]),
+                     "isn't working", "stopped working", "clogged", "not cutting", "doesnt work",
+                     "does not work", "wont", "isnt working", "grinding", "strange noise",
+                     "weird noise", "loud noise", "odd noise", "rattling", "vibrating", "leak",
+                     "leaks", "leaked", "leaking", "tripped", "trips the", "overheating",
+                     "overheats", "no power"]),
     ("damaged", ["cracked", "damaged", "bent", "loose", "frayed", "missing guard", "torn"]),
     ("missing", ["missing", "can't find", "lost", "gone"]),
     ("dirty", ["dirty", "messy", "spill", "spilled", "full of"]),
