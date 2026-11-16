@@ -28,6 +28,7 @@ from msa.core.services import escalate, site_settings
 from msa.core.textsearch import Index, tokens
 from msa.safety_tools import tools
 from msa.safety_tools.rules import find_categories, find_materials
+from msa.safety_tools.thickness import over_thickness
 
 MIN_SCORE = 2.0  # BM25 score below which a passage doesn't count as an answer
 URGENT = ["on fire", "is burning", "caught fire", "flames", "there's smoke", "smoke is coming",
@@ -164,6 +165,13 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
             label = m.replace("_", " ").upper() if len(m) <= 4 else m.replace("_", " ")
             if v.verdict == "allowed":
                 limits = " ".join(v.reasons).strip()  # e.g. "Allowed: plywood and MDF up to 6 mm."
+                over = over_thickness(question, m, limits)
+                if over:  # the material is allowed, but not at the size asked about
+                    trace.append(f"thickness:{m} -> {over[0]} over limit {over[1]}")
+                    lines.append(f"No. {label} is allowed on the {eq.name} only up to {over[1]}, "
+                                 f"and {over[0]} is thicker than that. Please ask staff.")
+                    codes.append("E01")
+                    continue
                 lines.append(f"Yes, {label} is approved for the {eq.name}."
                              + (f" The manual says: {limits}" if limits else ""))
                 ref = v.data.get("source_ref") or {}
