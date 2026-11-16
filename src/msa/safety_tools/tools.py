@@ -232,6 +232,11 @@ def evaluate_layout(plan: FloorPlan, items: list[PlacedItem], eqs: dict[str, Equ
         x0, y0, x1, y1 = _footprint(it)
         if x0 < -1e-9 or y0 < -1e-9 or x1 > room[2] + 1e-9 or y1 > room[3] + 1e-9:
             add("LAY-BOUNDS", f"{it.label or it.kind} sits outside the room outline", [it.id])
+        # Clearance sides are assigned in 90 degree steps, so any other angle would be checked
+        # as if the machine faced the nearest right angle. Report it rather than guess.
+        if int(round((it.rotation or 0) % 360)) % 90:
+            add("LAY-ROTATION", f"{it.label or it.kind} is rotated {(it.rotation or 0) % 360:g}°, "
+                "which the clearance check can't model; use 0, 90, 180 or 270.", [it.id])
 
     machines = [it for it in items if it.kind == "equipment" and it.equipment_id in eqs]
     for m in machines:

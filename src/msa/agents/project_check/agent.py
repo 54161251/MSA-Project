@@ -31,6 +31,7 @@ from msa.safety_tools.rules import (
     find_processes,
     rules,
 )
+from msa.safety_tools.thickness import over_thickness as _over_thickness
 
 SYSTEM = (
     "You split a makerspace member's project description into ordered steps. For each step "
@@ -103,30 +104,12 @@ def split_steps(description: str, machines) -> list[dict[str, Any]]:
     return steps
 
 
-_TO_MM = {"mm": 1.0, "cm": 10.0, "in": 25.4, "inch": 25.4, "inches": 25.4, '"': 25.4}
-_SIZE = r"(\d+(?:\.\d+)?)\s*(mm|cm|inches|inch|in|\")"
-_LIMIT = re.compile(r"up to\s+" + _SIZE, re.I)
-
-
 def over_thickness(step_text: str, material: str, rule_text: str) -> tuple[str, str] | None:
-    """('12 mm', '6 mm') when the member states a thickness above the approved limit.
+    """Kept as a re-export: tests and other modules import it from this agent.
 
-    Only a size written as a thickness counts ("12 mm thick", "12 mm plywood"), so the width or
-    length of a part ("a 300 mm wide plywood panel") is not mistaken for one."""
-    lim = _LIMIT.search(rule_text or "")
-    if not lim:
-        return None
-    limit_mm = float(lim.group(1)) * _TO_MM[lim.group(2).lower()]
-    words = "|".join(re.escape(w) for w in material.lower().split("_") if len(w) > 2) or "sheet"
-    thick = re.compile(_SIZE + r"(?:[\s-]+thick\b|(?:\s+(?!wide|long|tall|high|by|x)[a-z-]+){0,2}"
-                       r"\s+(?:" + words + r"|sheet|board|stock|panel)\b)", re.I)
-    for m in thick.finditer(step_text):
-        mm = float(m.group(1)) * _TO_MM[m.group(2).lower()]
-        if mm > 100 and "thick" not in m.group(0).lower():
-            continue  # "600 mm plywood board" is a length, not a thickness
-        if mm > limit_mm + 1e-9:
-            return f"{m.group(1)} {m.group(2)}", f"{lim.group(1)} {lim.group(2)}"
-    return None
+    The parser lives in msa.safety_tools.thickness so the Ask agent can use the same logic;
+    when it lived here, Ask answered "Yes" to a thickness this agent escalated."""
+    return _over_thickness(step_text, material, rule_text)
 
 
 def pick_machine(db: Session, category: str | None, equipment_id: str | None) -> Equipment | None:
@@ -157,6 +140,7 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
     citations: list[Citation] = []
     project_cats: set[str] = set()
     project_procs: set[str] = set()
+    project_mats: set[str] = set()
 
     def add(step_i: int | None, severity: str, text: str, rule_ids=(), code: str | None = None,
             cites=()):
@@ -194,6 +178,7 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
         for w in v.data.get("warnings", []):
             add(i, "medium", w, ["USE-STATUS-WARN"])
         for mat in st["materials"]:
+            project_mats.add(mat)
             mv = tools.check_material(db, eq.id, mat)
             trace.append(f"tool:check_material({eq.id},{mat}) -> {mv.verdict}")
             label = mat.replace("_", " ").upper() if len(mat) <= 4 else mat.replace("_", " ")
@@ -228,10 +213,21 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
 
     for rule in rules()["cross_step"]:
         trig = set(rule["triggers"])
-        if trig <= (project_cats | project_procs):
-            sev = {"low": "condition", "medium": "condition", "high": "high"}[rule["severity"]]
-            # high-severity combinations need a staff member to look first (E04)
-            add(None, sev, rule["text"], [rule["id"]], "E04" if sev == "high" else None)
+        any_trig = set(rule.get("any_triggers") or [])
+        mats = set(rule.get("materials") or [])
+        procs = set(rule.get("processes") or [])
+        # Every listed condition must hold. `any_triggers` needs at least one of its set.
+        if not trig <= (project_cats | project_procs):
+            continue
+        if any_trig and not any_trig & (project_cats | project_procs):
+            continue
+        if mats and not mats <= project_mats:
+            continue
+        if procs and not procs <= project_procs:
+            continue
+        sev = {"low": "condition", "medium": "condition", "high": "high"}[rule["severity"]]
+        # high-severity combinations need a staff member to look first (E04)
+        add(None, sev, rule["text"], [rule["id"]], "E04" if sev == "high" else None)
 
     if not findings and not project_cats:
         # Nothing was recognized: no machine, material or process. "Looks fine" would be a

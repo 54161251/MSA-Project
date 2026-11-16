@@ -187,3 +187,38 @@ Added 34 regression tests and 9 evaluation cases. After the fixes: 204 tests pas
 clean, and the offline suites pass 100 % (ask 36, project check 26, review 26, triage 15). Not run
 with a real model in this session. These changes touch other members' parts (R1, R2, R3, R6) and
 have not been reviewed by those owners or by Lluc.
+
+## 2026-11-16: R3 review and fixes (DeepSeek V4.1 Flash, in a Cursor chat; R3, Tomas's part)
+
+Reviewed the R3 package (safety tools, rule tables, Project Check, layout check) against the
+fictional manuals, then **ran the seeded makerspace and probed it** rather than reasoning from the
+code, which corrected one claim: the category bans I expected to be missing from `global.yaml`
+(steel on the CNC, metal on the saw, nylon on the FDM printer) are present as machine-level
+`MaterialRule` rows built by Intake, and they fire correctly.
+
+Four real problems were found and fixed:
+* **Ask and Project Check gave opposite answers about the same rule.** "Can I laser cut 12 mm
+  plywood?" was answered "Yes ... the manual says up to 6 mm", while Project Check escalated the
+  same plan with `MAT-THICKNESS`. The parser lived in the Project Check agent, so Ask could not
+  use it. Moved to `safety_tools/thickness.py` and called from both; Ask now refuses with E01.
+  Inch fractions ("1/4 inch") are supported — a fresh eval case had been written for exactly this
+  on 2026-11-11 and recorded as fixed, but only Ask's prose had been fixed, not the check.
+* **Cross-step rules ignored materials.** "Rip pine on the table saw, then laser cut a cardboard
+  tag" fired `X-LASER-ACRYLIC-SAW`, a rule about cutting the same acrylic on both machines. Rules
+  now take optional `materials` / `processes` / `any_triggers`; the acrylic rule requires acrylic.
+  Added `X-RESIN-HEAT` and `X-SAND-LASER`.
+* **`print a` was a 3D-printer keyword**, so "Print a copy of the SOP" was checked as 3D printing
+  and given "do not touch the nozzle" as its safety conditions. Removed; a filament or resin name
+  now implies its machine, so "print a phone stand in PLA" still works.
+* **A 45 degree rotation was checked as 0 degrees.** Clearance sides only exist in 90 degree
+  steps, so `LAY-ROTATION` now reports an angle it cannot model. Note `w`/`h` are stored already
+  rotated (the editor swaps them), so the footprint itself was correct — my first reading of this
+  was wrong and the probe showed it.
+
+The full test suite passes (234 tests, 29 of them new in `tests/safety_tools/test_r3_fixes.py`),
+`ruff` is clean, and the offline suites still pass 100 % (ask 36, project check 26, review 26,
+triage 15). The new tests were written after the fixes, so they are not a held-out set. Not run
+with a real model. Recorded in `docs/roles/R3-safety-rules.md`. Still open and not fixed:
+conditions attached to an "allowed" verdict ("mild steel **with cutting fluid**") are not shown
+to the member, `ask_staff` has no test, and `risk_score` is exposed but unused. Not reviewed by
+Tomas.
