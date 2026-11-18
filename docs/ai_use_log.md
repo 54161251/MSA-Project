@@ -222,3 +222,19 @@ with a real model. Recorded in `docs/roles/R3-safety-rules.md`. Still open and n
 conditions attached to an "allowed" verdict ("mild steel **with cutting fluid**") are not shown
 to the member, `ask_staff` has no test, and `risk_score` is exposed but unused. Not reviewed by
 Tomas.
+
+## 2026-11-18: Ask retrieval fix after the first real-model demo (Claude Opus 5.5, chat session; R5, Lluc)
+
+Lluc ran the demo locally with Claude for the first time and found that Ask refused basic laser
+questions. With Claude, Lluc ran diagnostic scripts on his machine that printed each Ask step and
+Claude's raw replies; they showed the cause was Ask's own passage filter (the machine's name and
+filler words counted as matches, so the relevant lines were dropped before Claude saw them), plus
+an all-or-nothing answer rule. Claude changed `src/msa/agents/ask/agent.py`: only subject words
+count in the filter, Claude may give a partial answer with a note to ask staff, and refusals keep
+their trace (they used to lose it, which hid the cause). A first, looser version of the filter
+let off-topic questions through offline and was replaced before committing.
+
+Checked: 6 new regression tests built from the recorded Claude replies, the full test suite and
+`ruff` pass, offline suites 100% (ask 37/37, unsafe answers 0), and a 57-question hostile probe
+gives the same results as before except one question the documents do not answer, now refused.
+**Not yet re-run with Claude after the fix**; Lluc to confirm on his machine before merging.

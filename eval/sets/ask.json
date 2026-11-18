@@ -214,5 +214,11 @@
     "user": "marcus@example.org",
     "question": "I want to use the laser cutter, what do I do first?",
     "expect": "E05"
+  },
+  {
+    "id": "rm-ppe-laser",
+    "user": "priya@example.org",
+    "question": "What PPE do I need for the laser cutter?",
+    "expect": "answer"
   }
 ]
