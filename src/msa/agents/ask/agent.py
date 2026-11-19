@@ -28,21 +28,36 @@ from msa.core.services import escalate, site_settings
 from msa.core.textsearch import Index, tokens
 from msa.safety_tools import tools
 from msa.safety_tools.rules import find_categories, find_materials
+from msa.safety_tools.thickness import over_thickness
 
 MIN_SCORE = 2.0  # BM25 score below which a passage doesn't count as an answer
 URGENT = ["on fire", "is burning", "caught fire", "flames", "there's smoke", "smoke is coming",
           "smoking", "i cut myself", "cut my", "bleeding", "i burned", "burned my", "burnt my",
           "got shocked", "electric shock", "shocked me", "hurt myself", "got hurt", "is hurt",
-          "am hurt", "injured", "unconscious", "can't breathe", "in my eye", "in my eyes", "help!"]
-HOWTO = re.compile(r"\b(how (do|can|should) i|how to|can i|steps to|walk me through|what settings)\b",
+          "am hurt", "injured", "unconscious", "can't breathe", "cannot breathe", "in my eye",
+          "in my eyes", "help!", "smoke in the", "smoke is filling", "caught my", "electrocuted",
+          "fainted", "passed out", "broke my",
+          "broken bone", "blood", "seizure", "choking", "not breathing", "chest pain",
+          "heart attack", "call 911", "call an ambulance", "need an ambulance", "amputated",
+          "crushed my", "got crushed", "sliced my", "sliced open", "gashed", "splashed in",
+          "sparks and", "burned me", "burnt me"]
+# "my arm got caught in the machine" is an emergency; "filament got caught in the extruder" is not
+CAUGHT = re.compile(r"\b(arm|hand|hands|finger|fingers|thumb|hair|sleeve|shirt|clothes|clothing|"
+                    r"glove|gloves|scarf|necklace|lanyard)\b[^.?!]{0,25}\b(caught|pulled into|"
+                    r"sucked into|trapped|stuck) in\b", re.I)
+HOWTO = re.compile(r"\b(how (do|can|should) i|how to|can i|steps to|walk me through|what settings|"
+                   r"what do i do|where do i start|get started|i want to (use|run|start|operate))\b",
                    re.I)
 MATERIAL_Q = re.compile(r"\b(can i|can we|is it ok|is it okay|is it safe|am i allowed|okay to|ok to)\b.*"
-                        r"\b(cut|engrave|etch|print|use|mill|drill|saw|sew|solder|route|machine|rip)\b",
+                        r"\b(cut|engrave|etch|print|use|mill|drill|saw|sew|solder|route|machine|rip|laser|burn|carve|"
+                        r"put|run|feed|process)\b",
                         re.I)
 
 
 def is_emergency(text: str) -> bool:
     t = text.lower()
+    if CAUGHT.search(t):
+        return True
     return any(re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])", t) for w in URGENT)
 
 
@@ -104,14 +119,41 @@ def passages(db: Session, equipment: Equipment | None) -> list[dict[str, Any]]:
 
 SYSTEM = (
     "You answer a makerspace member's question using ONLY the numbered passages. Use short, plain "
-    "sentences. Cite the passage numbers you used. If the passages don't answer the question, "
-    'set answerable=false. Return {"answerable": bool, "answer": str, "used": [passage numbers]}'
+    "sentences and never add a step, number, setting or safety rule that the passages don't state. "
+    "If the passages answer the question, answer it. If they answer only part of it, give that "
+    "part, say plainly what the documents don't cover, set partial=true and still set "
+    "answerable=true. Set answerable=false only when no passage is relevant to the question. "
+    "Cite the passage numbers you used. "
+    'Return {"answerable": bool, "partial": bool, "answer": str, "used": [passage numbers]}'
 )
 
+# Words that shape a question but say nothing about its subject ("What do I need to know ...")
+FILLER = set(tokens("need needs needed know tell want wants like get gets getting got make sure ok "
+                    "okay please also just really any some thing things way ways happen happens "
+                    "happened"))
 
-def refuse(code: str, message: str | None = None, **out) -> AgentResult:
+PARTIAL_NOTE = "The approved documents don't cover all of this; ask a staff member for the rest."
+
+
+def content_tokens(question: str, eq: Equipment | None) -> set[str]:
+    """Question words that say what is being asked, not which machine it is about.
+
+    The machine's own name ("laser cutter", "Lumenic Vector 60") is in almost every question
+    about it, so counting it as a match let unrelated lines through and pushed relevant ones out
+    (real Claude run, 2026-11-18: "What PPE do I need for the laser cutter?" lost every safety
+    glasses line and was refused)."""
+    q = {t for t in tokens(question) if len(t) > 1}  # "can't" leaves a stray "t"
+    words = q - FILLER
+    if eq is not None:
+        words -= set(tokens(" ".join([eq.name, eq.id.replace("-", " "), eq.brand or "",
+                                      eq.model_number or "", eq.category.replace("_", " ")])))
+    return words or q
+
+
+def refuse(code: str, message: str | None = None, trace: list[str] | None = None,
+           **out) -> AgentResult:
     meta = escalations.get(code)
-    return AgentResult(agent="ask", status="refused", escalations=[code],
+    return AgentResult(agent="ask", status="refused", escalations=[code], trace=trace or [],
                        output={"answer": message or meta.member_message, "refused": True, **out})
 
 
@@ -133,7 +175,7 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
     risk = escalations.match_high_risk(question)
     if risk:
         escalate(db, "E04", "ask", user_id, f"{', '.join(risk)}: {question[:200]}", "ask")
-        return refuse("E04", categories=risk)
+        return refuse("E04", categories=risk, trace=[f"rule:high_risk {risk}"])
 
     eq = detect_equipment(db, question, payload.get("equipment_id"))
     trace.append(f"detect_equipment -> {eq.id if eq else 'none'}")
@@ -141,7 +183,7 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
     mats = find_materials(question)
     if eq and MATERIAL_Q.search(question) and not mats:
         escalate(db, "E01", "equipment", eq.id, f"Unrecognized material in: {question[:200]}", "ask")
-        return refuse("E01", equipment_id=eq.id)
+        return refuse("E01", equipment_id=eq.id, trace=trace + ["material: not recognized"])
     if eq and mats and MATERIAL_Q.search(question):
         lines, cites, codes = [], [], []
         for m in mats:
@@ -149,7 +191,16 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
             trace.append(f"tool:check_material({eq.id},{m}) -> {v.verdict}")
             label = m.replace("_", " ").upper() if len(m) <= 4 else m.replace("_", " ")
             if v.verdict == "allowed":
-                lines.append(f"Yes, {label} is approved for the {eq.name}.")
+                limits = " ".join(v.reasons).strip()  # e.g. "Allowed: plywood and MDF up to 6 mm."
+                over = over_thickness(question, m, limits)
+                if over:  # the material is allowed, but not at the size asked about
+                    trace.append(f"thickness:{m} -> {over[0]} over limit {over[1]}")
+                    lines.append(f"No. {label} is allowed on the {eq.name} only up to {over[1]}, "
+                                 f"and {over[0]} is thicker than that. Please ask staff.")
+                    codes.append("E01")
+                    continue
+                lines.append(f"Yes, {label} is approved for the {eq.name}."
+                             + (f" The manual says: {limits}" if limits else ""))
                 ref = v.data.get("source_ref") or {}
                 if ref.get("document_id"):
                     cites.append(Citation(**ref))
@@ -173,20 +224,20 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
                 "E13" if "E13" in v.data.get("codes", []) else "E05")
             escalate(db, code, "equipment", eq.id, f"{user_id}: {'; '.join(v.reasons)}", "ask")
             return refuse(code, f"{escalations.get(code).member_message} ({'; '.join(v.reasons)})",
-                          equipment_id=eq.id, reasons=v.reasons)
+                          equipment_id=eq.id, reasons=v.reasons, trace=trace)
 
     corpus = passages(db, eq)
     if not corpus:
         escalate(db, "E03", "ask", user_id, question[:200], "ask")
-        return refuse("E03")
-    q_tokens = set(tokens(question))
+        return refuse("E03", trace=trace + ["retrieve -> no approved documents"])
+    q_tokens = content_tokens(question, eq)
     hits, seen_text = [], set()
-    for sc, p in Index(corpus).search(question, k=12):
+    for sc, p in Index(corpus).search(question, k=20):
         key = " ".join(tokens(p["text"].split(":", 1)[-1]))
         if sc < MIN_SCORE or key in seen_text:  # the SOP and training guide share lines
             continue
         if len(q_tokens & set(tokens(p["text"]))) < min(2, len(q_tokens)):
-            continue
+            continue  # must share the question's subject words, not just the machine's name
         seen_text.add(key)
         hits.append((sc, p))
         if len(hits) == 6:
@@ -194,26 +245,32 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
     trace.append(f"retrieve -> {len(hits)} passage(s)")
     if not hits:
         escalate(db, "E03", "ask", user_id, question[:200], "ask")
-        return refuse("E03")
+        return refuse("E03", trace=trace)
     numbered = "\n\n".join(f"[{i}] {p['text']}" for i, (_, p) in enumerate(hits))
-    fallback = {"answerable": True, "answer": _offline_answer(hits), "used": list(range(len(hits[:2])))}
+    fallback = {"answerable": True, "partial": False, "answer": _offline_answer(hits),
+                "used": list(range(len(hits[:2])))}
     out = get_llm().complete_json("ask.answer", SYSTEM,
                                   f"Question: {question}\n\nPassages:\n{numbered}", lambda: fallback,
                                   max_tokens=600)
+    trace.append(f"llm:ask.answer -> answerable={out.get('answerable')} partial={out.get('partial')}")
     if not as_bool(out.get("answerable", False)):
         escalate(db, "E03", "ask", user_id, question[:200], "ask")
-        return refuse("E03")
+        return refuse("E03", trace=trace)
     used = [i for i in out.get("used", []) if isinstance(i, int) and 0 <= i < len(hits)] or [0]
     cites = [Citation(**c) for i in used for c in hits[i][1]["citations"]]
     if not cites:
         escalate(db, "E03", "ask", user_id, question[:200], "ask")
-        return refuse("E03")
+        return refuse("E03", trace=trace + ["no citations"])
     warnings = []
     if eq:
         v = tools.can_use(db, user_id, eq.id)
         warnings = v.data.get("warnings", [])
+    answer = str(out.get("answer", "")).strip()
+    partial = as_bool(out.get("partial", False))
+    if partial and PARTIAL_NOTE not in answer:
+        answer = f"{answer} {PARTIAL_NOTE}".strip()
     return AgentResult(agent="ask", status="ok", citations=_dedup(cites), trace=trace,
-                       output={"answer": str(out.get("answer", "")).strip(),
+                       output={"answer": answer, "partial": partial,
                                "equipment_id": eq.id if eq else None, "warnings": warnings})
 
 

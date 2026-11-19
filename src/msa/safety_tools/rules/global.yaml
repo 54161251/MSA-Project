@@ -10,7 +10,10 @@ categories:
     keywords: [laser, laser cut, laser-cut, lasercut, engrave, etch, laser engrave]
   fdm_printer:
     label: FDM 3D printer
-    keywords: [3d print, 3d-print, 3d printed, fdm, filament print, print a, print the, printed]
+    # "print a"/"print the" are deliberately absent: they match "print a copy of the SOP" and
+    # "print a photo", which are not 3D printing. A filament or printer word is required.
+    keywords: [3d print, 3d-print, 3d printed, fdm, filament print, filament, 3d printer,
+               3d-printer, printer]
   resin_printer:
     label: Resin 3D printer
     keywords: [resin print, resin printer, sla, msla, resin-print]
@@ -34,7 +37,8 @@ categories:
     keywords: [sew, sewing, stitch, hem, quilt]
   vinyl_cutter:
     label: Vinyl cutter
-    keywords: [vinyl cut, vinyl cutter, sticker, decal, heat transfer vinyl, htv]
+    keywords: [vinyl cut, vinyl cutter, sticker, decal, heat transfer vinyl, htv, vinyl banner,
+               vinyl sheet, sign vinyl]
 
 # Process words that are not machines but matter for cross-step rules
 processes:
@@ -54,7 +58,7 @@ materials:
   cardboard: [cardboard, chipboard]
   paper: [paper, cardstock]
   leather_veg_tan: [leather, veg-tan leather, vegetable tanned leather, vegetable-tanned leather]
-  leather_chrome_tan: [chrome-tanned leather, chrome tanned leather, chrome leather]
+  leather_chrome_tan: [chrome-tanned leather, chrome tanned leather, chrome leather, chrome-tanned, chrome tanned, chrome tan, chrome-tan]
   cotton_fabric: [cotton, fabric, felt, canvas, denim]
   pvc: [pvc, vinyl sheet, vinyl record, pleather, faux leather, polyvinyl chloride]
   polycarbonate: [polycarbonate, lexan, makrolon]
@@ -76,6 +80,17 @@ materials:
   heat_transfer_vinyl: [heat transfer vinyl, htv, iron-on vinyl]
   lead_free_solder: [lead-free solder, lead free solder]
   leaded_solder: [leaded solder, 60/40 solder, 63/37 solder]
+
+# A material that only one kind of machine works with implies that machine, so "print a phone
+# stand in PLA" still means 3D printing without the ambiguous "print a" keyword.
+material_categories:
+  pla: fdm_printer
+  petg: fdm_printer
+  tpu: fdm_printer
+  nylon: fdm_printer
+  standard_resin: resin_printer
+  adhesive_vinyl: vinyl_cutter
+  heat_transfer_vinyl: vinyl_cutter
 
 # A rule for the parent covers the child when the child has no rule of its own.
 material_parents:
@@ -145,7 +160,9 @@ sop_required_ppe_terms:
   drill_press: [["glasses", "goggles", "eye"]]
   soldering: [["glasses", "goggles", "eye"]]
 
-# Cross-step rules for Project Check: fire when ALL triggers appear in one project.
+# Cross-step rules for Project Check: fire when ALL of `triggers` appear in one project.
+# `materials` and `processes` are optional extra conditions; without them a rule fires on the
+# machines alone, which is why a rule about acrylic must name `materials: [acrylic]`.
 cross_step:
   - id: X-RESIN-SAND
     triggers: [resin_printer, sanding]
@@ -169,8 +186,22 @@ cross_step:
     text: "Soldering near lithium batteries can start a fire. Never solder directly to cells; use a fireproof surface and ask staff first."
   - id: X-LASER-ACRYLIC-SAW
     triggers: [table_saw, laser_cutter]
+    materials: [acrylic]
     severity: low
     text: "If you cut the same acrylic on both the saw and the laser, ask staff to fit the plastics blade first."
+  # Resin handling leaves uncured resin and isopropyl alcohol on the bench, which the resin
+  # manual says must stay away from heat and open flames.
+  - id: X-RESIN-HEAT
+    triggers: [resin_printer]
+    any_triggers: [laser_cutter, soldering, painting]
+    severity: high
+    text: "Uncured resin and isopropyl alcohol must stay away from heat and flames. Keep resin work at the resin bench, and let prints cure before any laser or soldering work."
+  # Dust from sanding settles on the laser bed and lens, where it causes flare-ups.
+  - id: X-SAND-LASER
+    triggers: [sanding, laser_cutter]
+    severity: medium
+    text: "Sand at a separate bench. Dust on the laser bed or lens causes flare-ups, so clean the bed and lens before laser work."
+
 
 # Layout rules (metres). Placeholder house rules, loosely based on common fire-code values;
 # confirm with your local fire code before relying on them.

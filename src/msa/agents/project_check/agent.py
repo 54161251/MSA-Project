@@ -31,6 +31,7 @@ from msa.safety_tools.rules import (
     find_processes,
     rules,
 )
+from msa.safety_tools.thickness import over_thickness as _over_thickness
 
 SYSTEM = (
     "You split a makerspace member's project description into ordered steps. For each step "
@@ -103,6 +104,14 @@ def split_steps(description: str, machines) -> list[dict[str, Any]]:
     return steps
 
 
+def over_thickness(step_text: str, material: str, rule_text: str) -> tuple[str, str] | None:
+    """Kept as a re-export: tests and other modules import it from this agent.
+
+    The parser lives in msa.safety_tools.thickness so the Ask agent can use the same logic;
+    when it lived here, Ask answered "Yes" to a thickness this agent escalated."""
+    return _over_thickness(step_text, material, rule_text)
+
+
 def pick_machine(db: Session, category: str | None, equipment_id: str | None) -> Equipment | None:
     if equipment_id:
         eq = db.get(Equipment, equipment_id)
@@ -131,6 +140,7 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
     citations: list[Citation] = []
     project_cats: set[str] = set()
     project_procs: set[str] = set()
+    project_mats: set[str] = set()
 
     def add(step_i: int | None, severity: str, text: str, rule_ids=(), code: str | None = None,
             cites=()):
@@ -168,6 +178,7 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
         for w in v.data.get("warnings", []):
             add(i, "medium", w, ["USE-STATUS-WARN"])
         for mat in st["materials"]:
+            project_mats.add(mat)
             mv = tools.check_material(db, eq.id, mat)
             trace.append(f"tool:check_material({eq.id},{mat}) -> {mv.verdict}")
             label = mat.replace("_", " ").upper() if len(mat) <= 4 else mat.replace("_", " ")
@@ -185,7 +196,12 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
                 ref = mv.data.get("source_ref") or {}
                 cites = [Citation(**ref)] if ref.get("document_id") else []
                 citations.extend(cites)
-                add(i, "ok", f"{label} is approved for the {eq.name}.", mv.rule_ids, None, cites)
+                over = over_thickness(st["text"], mat, " ".join(mv.reasons))
+                if over:  # approved material, but thicker than the manual's limit: staff decide
+                    add(i, "high", f"{label} is approved for the {eq.name} only up to {over[1]}; "
+                        f"this plan uses {over[0]}.", [*mv.rule_ids, "MAT-THICKNESS"], "E01", cites)
+                else:
+                    add(i, "ok", f"{label} is approved for the {eq.name}.", mv.rule_ids, None, cites)
         pv = tools.required_ppe(db, eq.id)
         trace.append(f"tool:required_ppe({eq.id}) -> {pv.verdict}")
         items = pv.data.get("items", [])
@@ -197,11 +213,31 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
 
     for rule in rules()["cross_step"]:
         trig = set(rule["triggers"])
-        if trig <= (project_cats | project_procs):
-            sev = {"low": "condition", "medium": "condition", "high": "high"}[rule["severity"]]
-            # high-severity combinations need a staff member to look first (E04)
-            add(None, sev, rule["text"], [rule["id"]], "E04" if sev == "high" else None)
+        any_trig = set(rule.get("any_triggers") or [])
+        mats = set(rule.get("materials") or [])
+        procs = set(rule.get("processes") or [])
+        # Every listed condition must hold. `any_triggers` needs at least one of its set.
+        if not trig <= (project_cats | project_procs):
+            continue
+        if any_trig and not any_trig & (project_cats | project_procs):
+            continue
+        if mats and not mats <= project_mats:
+            continue
+        if procs and not procs <= project_procs:
+            continue
+        sev = {"low": "condition", "medium": "condition", "high": "high"}[rule["severity"]]
+        # high-severity combinations need a staff member to look first (E04)
+        add(None, sev, rule["text"], [rule["id"]], "E04" if sev == "high" else None)
 
+    if not findings and not project_cats:
+        # Nothing was recognized: no machine, material or process. "Looks fine" would be a
+        # default-to-safe answer (G3), so ask the member to be specific instead.
+        return AgentResult(
+            agent="project_check", status="refused", trace=trace,
+            output={"needs_clarification": True, "steps": steps, "findings": [],
+                    "message": "I couldn't tell which machines or materials this plan uses, so I "
+                               "can't check it. Name each machine (for example \"laser cutter\") "
+                               "and material, or ask a staff member."})
     blocking = {c for c in codes if escalations.get(c).blocking}
     if blocking:
         verdict = "needs_staff"

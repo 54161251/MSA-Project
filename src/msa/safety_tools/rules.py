@@ -79,6 +79,11 @@ def find_categories(text: str) -> list[str]:
                 continue
             claimed.append((m.start(), m.end()))
             hits.setdefault(cat, m.start())
+    # A filament or resin names its machine even when the sentence omits the process.
+    for mat in find_materials(text):
+        cat = rules().get("material_categories", {}).get(mat)
+        if cat and cat not in hits:
+            hits[cat] = len(t)
     return sorted(hits, key=hits.get)
 
 

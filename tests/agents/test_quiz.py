@@ -76,3 +76,19 @@ def test_failed_attempt_blocks_retake_for_24h(db):
     attempt.submitted_at = attempt.submitted_at - timedelta(hours=25)
     db.flush()
     quiz.start_attempt(db, u, eq.id)  # allowed again
+
+
+def test_starting_again_resumes_the_open_attempt(db):
+    """Restarting must not redraw: that would show the whole bank before the first submit."""
+    eq, _ = published_machine(db)
+    u = make_user(db)
+    a1, q1 = quiz.start_attempt(db, u, eq.id)
+    a2, q2 = quiz.start_attempt(db, u, eq.id)
+    assert a1.id == a2.id and [q["id"] for q in q1] == [q["id"] for q in q2]
+    quiz.submit_attempt(db, u, a1.id, answer_all(db, a1.id))
+
+
+def test_bank_covers_operation_and_emergency(db):
+    eq, _ = published_machine(db, "saw-01", "auto", "Kestrel", "TS10", "table_saw")
+    kinds = {q["kind"] for q in quiz.approved_bank(db, eq.id).questions}
+    assert {"material", "ppe", "warning", "step", "emergency"} <= kinds

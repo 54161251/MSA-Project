@@ -1,0 +1,36 @@
+# Floor plan of the fictional makerspace. Coordinates in metres from the top-left corner,
+# y grows downward. The room outline image (floorplan.png) has no equipment drawn on it.
+name: Main floor
+image: floorplan.png
+width_m: 14.0
+height_m: 10.0
+exits:
+  - {x: 7.0, y: 10.0, label: Main door}
+  - {x: 0.0, y: 2.0, label: Back door}
+items:
+  # machines (size comes from each machine's footprint)
+  - {equipment_id: laser-01, x: 1.0, y: 0.4}
+  - {equipment_id: fdm-01, x: 4.0, y: 0.4}
+  - {equipment_id: fdm-02, x: 4.8, y: 0.4}
+  - {equipment_id: resin-01, x: 6.0, y: 0.4}
+  - {equipment_id: solder-01, x: 8.0, y: 0.4}
+  - {equipment_id: saw-01, x: 10.0, y: 3.5}
+  - {equipment_id: band-01, x: 12.3, y: 1.0}
+  - {equipment_id: drill-01, x: 12.4, y: 4.5}
+  - {equipment_id: cnc-01, x: 10.0, y: 7.6}
+  - {equipment_id: vinyl-01, x: 1.0, y: 4.5}
+  - {equipment_id: sew-01, x: 1.0, y: 6.5}
+  # furniture
+  - {kind: object, label: Workbench A, shape: rect, x: 4.0, y: 4.0, w: 2.4, h: 1.2}
+  - {kind: object, label: Workbench B, shape: rect, x: 4.0, y: 6.5, w: 2.4, h: 1.2}
+  - {kind: object, label: Material shelves, shape: rect, x: 0.2, y: 9.2, w: 2.0, h: 0.6}
+  - {kind: object, label: Round table, shape: circle, x: 7.2, y: 5.0, w: 1.2, h: 1.2}
+  # Deliberate problem for the demo: the lumber rack sits in the table saw's outfeed zone,
+  # so the layout check shows an E11 warning on the floor plan.
+  - {kind: object, label: Lumber rack, shape: rect, x: 10.0, y: 6.2, w: 1.2, h: 0.4}
+  # safety equipment (wall mounted)
+  - {kind: safety, safety_type: extinguisher, label: CO2 extinguisher (laser), x: 2.9, y: 0.15, w: 0.3, h: 0.3}
+  - {kind: safety, safety_type: extinguisher, label: Extinguisher (wood shop), x: 13.6, y: 6.5, w: 0.3, h: 0.3}
+  - {kind: safety, safety_type: extinguisher, label: Extinguisher (main door), x: 6.2, y: 9.6, w: 0.3, h: 0.3}
+  - {kind: safety, safety_type: first_aid, label: First aid kit, x: 7.6, y: 9.6, w: 0.4, h: 0.3}
+  - {kind: safety, safety_type: eyewash, label: Eyewash station, x: 8.2, y: 9.6, w: 0.4, h: 0.3}

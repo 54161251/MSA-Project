@@ -58,3 +58,50 @@ soldering PPE lines ("soldering" didn't match "solder"); and Claude listed "circ
 machines, clearer prompt), with regression tests built from Claude's real replies. Offline
 suites still pass 100%. **Rerun with Claude to get post-fix numbers** before the report, and keep
 this table as the "before" row.
+
+## Red-team additions (2026-11-11)
+
+Twelve `rt-*` cases were added to `sets/ask.json` after probing Ask by hand with about 50
+hostile or odd questions. The probe found: emergencies with no matching word ("I got
+electrocuted", "somebody fainted", "there is smoke in the room") got a plain refusal instead of
+emergency info; high-risk requests ("get around the interlock", "override the e-stop", "go get
+lunch" while the laser runs) were answered or sent to the wrong code; and a "Yes" for a
+material dropped the manual's limit ("up to 6 mm"). Review also crashed on malformed drafts
+and accepted a changed unit ("6 mm" -> "6 cm"). All were fixed with regression tests in
+`tests/agents/test_ask_hardening.py`, `tests/agents/test_review_hardening.py` and
+`tests/core/test_escalation_catalog.py`. **These cases came from the probe, so like the
+others they are no longer a held-out test.**
+
+## Cross-check additions (2026-11-15)
+
+Six `cc-*` cases were added to `sets/project_check.json` and three to `sets/triage.json` after
+probing every agent and every API route. Found and fixed: Project Check cleared material thicker
+than the manual allows (12 mm plywood on a 6 mm limit), called a plan it could not read "fine",
+missed "tape down the lid switch" and "without the riving knife", and read "leather (chrome
+tanned)" as plain leather; Triage filed a flame as feedback and "sparks came out of" as out of
+stock. Regression tests are in `tests/test_cross_check_hardening.py`. As before, these cases came
+from the probe, so they are not a held-out test.
+
+## Real-model check of Ask retrieval (2026-11-18)
+
+Running the demo with Claude (`claude-sonnet-5-5`) on a fresh build, Ask refused "What PPE do I
+need for the laser cutter?" and "How do I clean the lens on the laser cutter?" (E03) even though
+the approved laser documents cover both. Recording Claude's replies showed why:
+
+* **Retrieval, not Claude.** Before Claude sees anything, Ask drops passages that share fewer than
+  two words with the question. The machine's name ("laser") and filler ("need") counted as
+  shared words, so "PPE: Never leave the laser unattended" passed and every "PPE: Wear safety
+  glasses..." line was dropped. Claude then correctly said the one passage it got did not answer.
+  Only subject words count now (machine name and filler removed).
+* **All-or-nothing answers.** For the lens question the passages say "wear safety glasses" and
+  "clean the focus lens with lens wipes every 8 hours" but give no steps, so Claude refused. Ask
+  now lets Claude give the supported part, mark it `partial` and add a note sending the member to
+  staff for the rest. It still may not add anything the passages don't say.
+* **Why the offline suites missed it.** The offline fallback always answers "answerable", so an
+  over-strict filter never showed. Offline 100% says nothing about retrieval quality with a real
+  model; **run `python -m eval.run` with Claude before quoting Ask numbers.**
+
+A looser one-word filter was tried first and rejected: offline it let "Who won the game last
+night?" and "What time does the shop close?" through. Regression tests are in
+`tests/agents/test_ask_retrieval.py` (they replay the Claude replies recorded on that run); one
+case (`rm-ppe-laser`) was added to `sets/ask.json`. Not yet re-run with Claude after the fix.
