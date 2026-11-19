@@ -142,3 +142,38 @@ claimed here.
 and Ask agents and the evaluation suites, click through the R5 demo from the README quick start
 (ask as "priya", the Approvals page, `python -m eval.run`), and record here what was reviewed,
 changed or found wrong.
+
+## 2026-11-19: R6 review and fixes (Claude, Sonnet 5.5; R6, Christina)
+
+Christina asked Claude (in the Claude desktop app, working on her local clone of the repo) to
+review the three R6 agents against the Assumptions doc and fix what it found, with a test for
+each fix.
+
+**What Claude produced.** A review of `maintenance/`, `triage/` and `inventory/` that listed six
+problems, ten new tests in `tests/agents/test_operations_fixes.py` (one or more per problem), the
+fixes in the three `agent.py` files, one changed test in `test_operations.py` (a member restocking
+now uses a staff account, per A2) and a short rules section in `docs/roles/R6-operations.md`.
+
+**Later the same day (Review on maintenance plans, agreed with Lluc).** Claude added `review_plan`
+and `review_plans` to `src/msa/agents/review/agent.py` (R5's folder, with Lluc's agreement) and
+changed `draft_plans` so every maintenance draft goes through them before an approval is created;
+four more tests. Its first idea was to hand the draft to Review through the orchestrator, but the
+direct callers (the SOP-published event, the re-draft route, the tests) don't follow handoffs, so
+the plans would have been stuck as drafts; Claude switched to a direct function call.
+
+**How it was checked.** Claude could not run the tests itself (no working Python environment on
+its side). Christina ran the new tests before the fixes: 9 failed and 1 passed, exactly as Claude
+had predicted from reading the code, so each problem was reproduced before it was fixed.
+Results after the fixes and the Review change (run by Christina on 2026-11-19): `ruff check .` clean;
+`pytest` 103 passed,
+run with `--ignore=tests/safety_tools/test_mcp_server.py` because that file cannot import the
+`mcp` library on her Mac (a local `cryptography`/OpenSSL mismatch in her Anaconda, unrelated to
+R6). `python -m eval.run` (offline mode, so the deterministic fallbacks, not a real LLM): ask 24/24,
+project_check 20/20, review 26/26, triage 12/12 with incident_recall 100% and grouping_accuracy 100%.
+
+**What Claude got wrong or changed its mind about.** Its first review also suspected that
+resolving an incident would break the append-only rule; reading `db.py` showed that only the
+report's facts are frozen, not its status, so that was dropped.
+
+**Not yet done by Christina.** Read the changes in `git diff`, run the full `pytest`, `ruff check .`
+and `python -m eval.run`, and record what was reviewed or found wrong.

@@ -21,10 +21,11 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from msa.agents.intake.drafting import SAFETY_KINDS, material_clause, material_verdict
+from msa.agents.maintenance.agent import parse_interval
 from msa.core.contracts import AgentResult, Handoff
 from msa.core.docs import approved_docs, sections, verify_citation
 from msa.core.llm import as_bool, get_llm
-from msa.core.models import Document, Equipment
+from msa.core.models import Document, Equipment, MaintenancePlan
 from msa.core.registry import registry
 from msa.core.services import escalate, request_approval
 from msa.core.textsearch import tokens
@@ -199,8 +200,82 @@ def review_document(db: Session, doc: Document) -> dict[str, Any]:
     return {"issues": issues, "doc_level": doc_level, "checked": checked}
 
 
+def _interval_text(plan: MaintenancePlan) -> str:
+    if plan.interval_hours:
+        return f"every {plan.interval_hours:g} h of use"
+    return f"every {plan.interval_days} days"
+
+
+def review_plan(db: Session, plan: MaintenancePlan) -> list[dict[str, Any]]:
+    """Check one drafted maintenance task against the manual line it cites.
+
+    E07  no citation, or it doesn't resolve (wrong document, version or locator, quote not there),
+         or the cited line doesn't mention the task
+    E08  the manual line states a different interval than the plan (contradicts the manual)
+    Deterministic on purpose: the interval is a number and the manual either says it or doesn't."""
+    label = f"{plan.task} ({_interval_text(plan)})"
+
+    def issue(code: str, why: str) -> list[dict[str, Any]]:
+        return [{"plan_id": plan.id, "code": code, "text": label, "why": why}]
+
+    ref = plan.source_ref or {}
+    if not ref.get("document_id"):
+        return issue("E07", "maintenance task has no citation")
+    try:
+        bad = verify_citation(db, ref, require_approved=False)
+    except Exception:  # a malformed citation record is a failed citation, not a crash
+        bad = "citation record is malformed"
+    if bad:
+        return issue("E07", bad)
+    quote = str(ref.get("quote") or "").strip().lstrip("-* ").strip()
+    if plan.task.lower()[:30] not in quote.lower():
+        return issue("E07", "the cited line doesn't mention this task")
+    stated = parse_interval(quote)
+    if stated is not None:
+        same = (stated["interval_days"] == plan.interval_days
+                and stated["interval_hours"] == plan.interval_hours)
+    else:
+        number = f"{plan.interval_hours:g}" if plan.interval_hours else str(plan.interval_days)
+        same = bool(re.search(rf"(?<![\d.]){re.escape(number)}(?![\d.])", quote))
+    if not same:
+        return issue("E08", f"the manual says: {quote[:160]}")
+    return []
+
+
+def review_plans(db: Session, equipment_id: str, plan_ids: list[str], actor: str = "review") -> AgentResult:
+    """Review drafted maintenance plans. Clean -> one approval for staff, with a reviewer summary.
+    Any flag -> nothing is sent for approval and staff get an escalation (the plans can't publish),
+    exactly as for documents. Plans already approved stay in force until a clean set replaces them."""
+    eq = db.get(Equipment, equipment_id)
+    name = eq.name if eq else equipment_id
+    plans = [p for p in (db.get(MaintenancePlan, i) for i in plan_ids) if p is not None]
+    flags: list[dict[str, Any]] = []
+    for p in plans:
+        flags.extend(review_plan(db, p))
+    summary = (f"checked {len(plans)} maintenance task(s) against the manual, "
+               + (f"{len(flags)} open flag(s)" if flags else "no open flags"))
+    trace = [f"review:maintenance_plan -> {summary}"]
+    if flags:
+        codes = sorted({f["code"] for f in flags})
+        for code in codes:
+            escalate(db, code, "equipment", equipment_id,
+                     f"{name} maintenance plan: " + "; ".join(
+                         f"{f['text']}: {f['why']}" for f in flags if f["code"] == code)[:500],
+                     "review")
+        return AgentResult(agent="review", status="escalated", escalations=codes, trace=trace,
+                           output={"summary": summary, "plan_flags": flags})
+    a = request_approval(db, "maintenance_plan", equipment_id,
+                         {"plan_ids": [p.id for p in plans],
+                          "review": {"checked": len(plans), "flags": [], "summary": summary}},
+                         "review", f"{name}: {len(plans)} maintenance task(s) from the manual ({summary})")
+    return AgentResult(agent="review", status="needs_approval", approvals=[a.id], trace=trace,
+                       output={"summary": summary, "plan_flags": []})
+
+
 @registry.agent("review")
 def run(db: Session, payload: dict, actor: str) -> AgentResult:
+    if payload.get("plan_ids"):  # maintenance plans, not documents
+        return review_plans(db, payload.get("equipment_id", ""), payload["plan_ids"], actor)
     cycle = int(payload.get("cycle", 1))
     history: list[dict] = list(payload.get("history", []))
     trace: list[str] = []

@@ -8,7 +8,9 @@
    a count (C4); a broken-machine report marks the machine `issue_reported`; 3+ reports about one
    machine in 24 h raise E15.
 5. Suggest a fix from approved documents only, using the Ask agent's retrieval (no source, no
-   suggestion).
+   suggestion). A report about a high-risk act (bypassing a guard, mains wiring...) raises E04 and
+   gets no suggestion.
+6. Emergency words are decided by the deterministic check before any LLM call (G5).
 """
 
 from __future__ import annotations
@@ -21,8 +23,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from msa.agents.ask.agent import detect_equipment, emergency_payload, is_emergency, passages
+from msa.core import escalations
 from msa.core.contracts import AgentResult
 from msa.core.db import utcnow
+from msa.core.escalations import match_high_risk
 from msa.core.llm import get_llm
 from msa.core.models import Equipment, Report
 from msa.core.registry import registry
@@ -73,6 +77,10 @@ SYSTEM = (
 
 def classify(text: str) -> dict[str, Any]:
     base = deterministic_classify(text)
+    if base["kind"] == "incident":
+        # G5: emergencies are decided by the deterministic check alone. The report text is not
+        # sent to a model first, so a slow or failing LLM can never delay the emergency path.
+        return base
     out = get_llm().complete_json("triage.classify", SYSTEM, text[:2000], lambda: base, max_tokens=100)
     kind = out.get("kind") if out.get("kind") in ("incident", "near_miss", "feedback") else base["kind"]
     if base["kind"] == "incident":
@@ -152,13 +160,26 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
         if recent >= E15_THRESHOLD:
             escalate(db, "E15", "equipment", eq.id, f"{recent} reports in 24 h", "triage")
             codes.append("E15")
-    s = suggest(db, eq, text)
-    if s:
-        rep.suggestion = s
-        out["suggestion"] = s
-    out["message"] = "Thanks, staff have been notified." + (
-        f" {n.count} people have reported this." if n.count > 1 else "")
-    return AgentResult(agent="triage", status="ok", escalations=codes, output=out, trace=trace)
+    risky = match_high_risk(text)
+    if risky:
+        # Ask's rule (E04): never suggest a fix for a report about bypassing guards, modifying a
+        # machine, mains wiring, unattended running or chemicals. Staff follow up in person.
+        escalate(db, "E04", "report", rep.id,
+                 f"{eq.name if eq else 'Shop'}: report mentions {', '.join(risky)}: {text[:200]}",
+                 "triage")
+        codes.append("E04")
+        trace.append(f"high-risk -> {', '.join(risky)}")
+    else:
+        s = suggest(db, eq, text)
+        if s:
+            rep.suggestion = s
+            out["suggestion"] = s
+    out["message"] = ("Thanks, staff have been notified." + (
+        f" {n.count} people have reported this." if n.count > 1 else ""))
+    if risky:
+        out["message"] += " " + escalations.get("E04").member_message
+    return AgentResult(agent="triage", status="escalated" if risky else "ok", escalations=codes,
+                       output=out, trace=trace)
 
 
 def resolve_cluster(db: Session, report: Report, staff_id: str, resolution: str) -> int:

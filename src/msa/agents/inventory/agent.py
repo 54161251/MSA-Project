@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from msa.core.contracts import AgentResult
 from msa.core.db import utcnow
 from msa.core.llm import get_llm
-from msa.core.models import InventoryItem, InventoryTxn, OrderDraft
+from msa.core.models import InventoryItem, InventoryTxn, OrderDraft, User
 from msa.core.registry import registry
 from msa.core.services import ServiceError, notify, request_approval
 from msa.core.textsearch import tokens
@@ -87,6 +87,16 @@ SYSTEM = (
 )
 
 
+def _staff_only_restock(db: Session, actor: str) -> AgentResult | None:
+    """Members log use; only staff add stock (A2). Checked here, on the server, for every caller."""
+    user = db.get(User, actor)
+    if user is not None and user.role == "staff":
+        return None
+    return AgentResult(agent="inventory", status="refused", output={
+        "message": "Only staff can add stock. Please ask a staff member to restock or to record "
+                   "the delivery."})
+
+
 @registry.agent("inventory")
 def log_use(db: Session, payload: dict, actor: str) -> AgentResult:
     text = (payload.get("text") or "").strip()
@@ -95,7 +105,9 @@ def log_use(db: Session, payload: dict, actor: str) -> AgentResult:
         if item is None:
             raise ServiceError("Unknown item")
         qty = float(payload.get("quantity") or 0)
-        direction = int(payload.get("direction") or -1)
+        direction = 1 if int(payload.get("direction") or -1) > 0 else -1  # only the sign counts
+        if direction > 0 and (refused := _staff_only_restock(db, actor)):
+            return refused
     else:
         base = deterministic_parse(db, text)
         cands = base["candidates"]
@@ -109,6 +121,8 @@ def log_use(db: Session, payload: dict, actor: str) -> AgentResult:
         item_id = out.get("item_id") if out.get("item_id") in ids else None
         qty = out.get("quantity") if isinstance(out.get("quantity"), (int, float)) else base["quantity"]
         direction = 1 if out.get("direction") == 1 else -1
+        if direction > 0 and (refused := _staff_only_restock(db, actor)):
+            return refused
         if item_id is None or not qty:
             return AgentResult(agent="inventory", status="refused", output={
                 "needs_clarification": True,
@@ -127,7 +141,7 @@ def log_use(db: Session, payload: dict, actor: str) -> AgentResult:
         notify(db, "staff", f"inventory:negative:{item.id}",
                f"{item.name}: stock went below zero ({level:g}); please count it.", "warning")
     order = check_reorder(db, item)
-    if order:
+    if order and order.status == "draft":
         out["order_draft_id"] = order.id
     return AgentResult(agent="inventory", status="ok", output=out,
                        trace=[f"parse -> {item.id} x{direction * qty:g}"])
@@ -137,9 +151,12 @@ def check_reorder(db: Session, item: InventoryItem) -> OrderDraft | None:
     level = on_hand(db, item.id)
     if level > item.reorder_point or item.reorder_qty <= 0:
         return None
-    for d in db.scalars(select(OrderDraft).where(OrderDraft.status == "draft")).all():
+    # Already on an order that is waiting for staff ("draft") or approved and on its way
+    # ("approved", until it is marked received): don't order it a second time.
+    open_orders = select(OrderDraft).where(OrderDraft.status.in_(["draft", "approved"]))
+    for d in db.scalars(open_orders).all():
         if any(i["item_id"] == item.id for i in d.items):
-            return d  # already on a pending order
+            return d
     draft = db.scalar(select(OrderDraft).where(OrderDraft.status == "draft",
                                                OrderDraft.supplier == item.supplier))
     line = {"item_id": item.id, "name": item.name, "qty": item.reorder_qty, "unit": item.unit,
@@ -175,7 +192,7 @@ def daily(db: Session) -> dict:
             notify(db, "staff", f"inventory:forecast:{item.id}",
                    f"{item.name} may run out in about {f['days_left']:g} days at the current rate.")
         d = check_reorder(db, item)
-        if d:
+        if d and d.status == "draft":
             drafted.append(d.id)
     return {"order_drafts": sorted(set(drafted))}
 
