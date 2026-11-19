@@ -24,13 +24,12 @@ from msa.core.contracts import AgentResult
 from msa.core.db import utcnow
 from msa.core.docs import approved_docs, citation_for, sections
 from msa.core.llm import get_llm
-from msa.core.models import Equipment, LogEntry, MaintenancePlan
+from msa.core.models import Equipment, LogEntry, MaintenancePlan, Notification
 from msa.core.registry import registry
 from msa.core.services import (
     ServiceError,
     audit,
     notify,
-    request_approval,
     resolve_notifications,
     set_machine_status,
     site_settings,
@@ -89,13 +88,18 @@ def _num(v, kind):
 
 
 def _clean_model_plans(raw, manual, fallback_plans: list[dict]) -> list[dict]:
-    """Keep only model plans whose task wording is really in the manual and that have a valid
-    interval; cite the manual line the deterministic parser found for the same task."""
+    """The manual's own lines are the authority on intervals.
+
+    Every task the deterministic parser found is kept exactly as the manual states it (the model
+    can neither change its interval nor leave it out). A task only the model found is added only
+    if its wording is really in the manual AND the manual line that mentions it states the same
+    interval number; otherwise it is dropped."""
     if not isinstance(raw, list):
         return fallback_plans
     body = manual.body.lower()
-    by_task = {fp["task"].lower(): fp for fp in fallback_plans}
-    clean = []
+    lines = manual.body.splitlines()
+    known = {fp["task"].lower() for fp in fallback_plans}
+    clean = list(fallback_plans)
     for p in raw:
         if not isinstance(p, dict):
             continue
@@ -103,12 +107,17 @@ def _clean_model_plans(raw, manual, fallback_plans: list[dict]) -> list[dict]:
         days, hours = _num(p.get("interval_days"), int), _num(p.get("interval_hours"), float)
         if not task or task.lower()[:30] not in body or not (days or hours):
             continue
-        match = by_task.get(task.lower())
-        ref = match["source_ref"] if match else {"document_id": manual.id, "version": manual.version,
-                                                 "locator": "maintenance", "quote": task[:200]}
+        if task.lower() in known:
+            continue  # already have it, with the manual's own interval and citation
+        line = next((ln for ln in lines if task.lower()[:30] in ln.lower()), "")
+        number = f"{hours:g}" if hours else str(days)
+        if not re.search(rf"(?<![\d.]){re.escape(number)}(?![\d.])", line):
+            continue  # the manual line does not state this interval
+        known.add(task.lower())
         clean.append({"task": task, "interval_days": days, "interval_hours": hours,
-                      "source_ref": ref})
-    return clean or fallback_plans
+                      "source_ref": {"document_id": manual.id, "version": manual.version,
+                                     "locator": "maintenance", "quote": line.strip()[:200] or task[:200]}})
+    return clean
 
 
 @registry.agent("maintenance_plan")
@@ -139,24 +148,38 @@ def draft_plans(db: Session, payload: dict, actor: str) -> AgentResult:
     if not created:
         return AgentResult(agent="maintenance_plan", status="ok",
                            output={"plans": 0, "message": "The manual lists no maintenance intervals."})
-    a = request_approval(db, "maintenance_plan", eq.id, {"plan_ids": [m.id for m in created]},
-                         "maintenance", f"{eq.name}: {len(created)} maintenance task(s) from the manual")
-    return AgentResult(agent="maintenance_plan", status="needs_approval", approvals=[a.id],
-                       output={"plans": len(created), "plan_ids": [m.id for m in created]})
+    # Every draft goes through the Review agent before staff see it (Assumptions doc, R5 item 2).
+    # Imported here because Review itself imports parse_interval from this module.
+    from msa.agents.review.agent import review_plans
+
+    ids = [m.id for m in created]
+    res = review_plans(db, eq.id, ids, actor)
+    return AgentResult(agent="maintenance_plan", status=res.status, approvals=res.approvals,
+                       escalations=res.escalations, trace=[f"review -> {res.output.get('summary', '')}"],
+                       output={"plans": len(created), "plan_ids": ids,
+                               "review": res.output.get("summary", ""),
+                               "flags": res.output.get("plan_flags", [])})
 
 
 def approve_plans(db: Session, equipment_id: str, plan_ids: list[str], actor: str,
                   now: datetime | None = None) -> None:
     now = now or utcnow()
     eq = db.get(Equipment, equipment_id)
+    previous: dict[str, MaintenancePlan] = {}  # replaced plans, by task, so history carries over
     for old in db.scalars(select(MaintenancePlan).where(MaintenancePlan.equipment_id == equipment_id,
                                                         MaintenancePlan.status == "approved")).all():
         if old.id not in plan_ids:
+            previous[old.task.lower()] = old
             old.status = "retired"
     for pid in plan_ids:
         mp = db.get(MaintenancePlan, pid)
         if mp and mp.status == "draft":
             mp.status = "approved"
+            prev = previous.get(mp.task.lower())
+            if prev is not None and mp.last_done_at is None:
+                # re-drafting must not make an overdue task look freshly done
+                mp.last_done_at = prev.last_done_at
+                mp.last_done_hours = prev.last_done_hours
             mp.last_done_at = mp.last_done_at or now  # clock starts when the plan is approved
             mp.last_done_hours = mp.last_done_hours if mp.last_done_hours is not None else (
                 eq.usage_hours if eq else 0.0)
@@ -193,9 +216,18 @@ def daily_check(db: Session, now: datetime | None = None) -> dict[str, Any]:
         due, due_at, why = is_due(mp, eq, now)
         if not due:
             continue
+        key = f"maintenance:{eq.id}:{mp.id}"
+        already = db.scalar(select(Notification).where(
+            Notification.dedup_key == key, Notification.recipient == "staff",
+            Notification.status == "open"))
+        n = notify(db, "staff", key, f"{eq.name}: '{mp.task}' is due ({why}).", "warning")
+        if already is None:
+            n.created_at = now  # the first check that saw this task due, on the check's own clock
+        if due_at is None or due_at >= now:
+            # Hour-based tasks have no calendar due date: they are due since the first check that
+            # saw them due, so the grace period can run out (C5).
+            due_at = already.created_at if already is not None else now
         by_eq.setdefault(eq.id, []).append((mp, due_at, why))
-        notify(db, "staff", f"maintenance:{eq.id}:{mp.id}",
-               f"{eq.name}: '{mp.task}' is due ({why}).", "warning")
         due_items.append({"equipment_id": eq.id, "task": mp.task, "why": why})
     for eid, items in by_eq.items():
         eq = db.get(Equipment, eid)

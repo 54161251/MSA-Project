@@ -154,9 +154,10 @@ def stock(db):
 def test_plain_language_use_and_restock(db, stock):
     acrylic, _ = stock
     u = make_user(db)
+    staff = make_user(db, role="staff")  # only staff may add stock (A2)
     r = inv.log_use(db, {"text": "used two sheets of 3 mm acrylic"}, u.id)
     assert r.output["delta"] == -2 and r.output["on_hand"] == 6
-    r = inv.log_use(db, {"text": "restocked 10 acrylic sheets"}, u.id)
+    r = inv.log_use(db, {"text": "restocked 10 acrylic sheets"}, staff.id)
     assert r.output["delta"] == 10
 
 

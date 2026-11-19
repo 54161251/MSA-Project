@@ -17,6 +17,22 @@
   (never places orders). CSV and Excel export.
 * `data/makerspace/inventory.yaml`, `eval/suites/triage.py`, `eval/sets/triage.json`.
 
+## Rules the code enforces (added 2026-11-19)
+* Maintenance: the manual's own line decides each task's interval and citation. The AI can only
+  add a task if the manual line states the same interval, and it cannot drop or change one.
+  Tasks counted in hours of use also lock the machine after the 7-day grace period (measured from
+  the first check that saw them due). Re-drafting plans keeps each task's last-done date and hours.
+* Review: every drafted maintenance plan goes through the Review agent before staff see it
+  (`review_plans` in `agents/review/agent.py`, also reachable as `orchestrator.run(db, "review",
+  {"equipment_id": ..., "plan_ids": [...]})`). It checks that the citation resolves, that the cited
+  line names the task (E07) and that the interval matches the manual line (E08). Any flag means no
+  approval is created and staff get an escalation; plans already approved stay in force. A clean set
+  creates one approval with a reviewer summary.
+* Triage: emergency words are decided before any LLM call (G5). A report about a high-risk act
+  (bypassing a guard, mains wiring, unattended running...) raises E04 and gets no suggested fix.
+* Inventory: only staff can add stock (A2); members log use only. An item already on a draft or
+  an approved order that has not been marked received is not ordered a second time.
+
 ## Demo
 Member: report "the laser cutter is not firing" three times from different accounts and show
 one notification with count 3. Report an injury and show the emergency banner and the machine
