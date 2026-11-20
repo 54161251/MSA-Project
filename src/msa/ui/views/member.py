@@ -27,7 +27,7 @@ def pages() -> list:
 
 
 def equipment_page() -> None:
-    st.title("Equipment")
+    common.page_header("Equipment", "precision_manufacturing", "member")
     eqs = api.safe(api.get, "/equipment") or []
     if not eqs:
         st.info("No equipment yet.")
@@ -95,7 +95,7 @@ def equipment_detail(eid: str) -> None:
 
 
 def training_page() -> None:
-    st.title("My training")
+    common.page_header("My training", "school", "member")
     u = st.session_state["user"]
     rec = api.safe(api.get, f"/users/{u['id']}") or {"training": []}
     rows = [{"Machine": t["equipment_name"], "Status": common.TRAINING.get(t["state"], ("", t["state"]))[1],
@@ -150,7 +150,7 @@ def training_page() -> None:
 
 
 def ask_page() -> None:
-    st.title("Ask a question")
+    common.page_header("Ask a question", "chat", "member")
     st.caption("Answers come only from the makerspace's approved documents. If there's no "
                "approved answer, or the question is risky, you'll be sent to a staff member.")
     hist = st.session_state.setdefault("ask_history", [])
@@ -186,7 +186,7 @@ def render_answer(m: dict) -> None:
 
 
 def project_page() -> None:
-    st.title("Check my project")
+    common.page_header("Check my project", "fact_check", "member")
     st.caption("Describe what you want to make and how. The check looks at every step: "
                "machines, materials, your training, and risky combinations.")
     with st.form("pc"):
@@ -205,13 +205,15 @@ def project_page() -> None:
     elif verdict == "clear_with_conditions":
         st.info(out["message"], icon=":material/checklist:")
     else:
-        st.error(out.get("message", "A staff member needs to review this."), icon=":material/support_agent:")
+        # Waiting for a staff decision: yellow, like everything else that waits on staff.
+        st.warning(out.get("message", "A staff member needs to review this."),
+                   icon=":material/support_agent:")
     steps = out.get("steps", [])
     general = [f for f in out.get("findings", []) if f["step"] is None]
     for f in general:
         st.markdown(f"{common.SEVERITY_ICON.get(f['severity'], '')} {f['text']}")
     for i, s in enumerate(steps):
-        with st.container(border=True):
+        with st.container(border=True, key=f"step_{i}"):
             st.markdown(f"**Step {i + 1}: {s['text']}**")
             for f in [f for f in out.get("findings", []) if f["step"] == i]:
                 st.markdown(f"{common.SEVERITY_ICON.get(f['severity'], '')} {f['text']}")
@@ -222,8 +224,9 @@ def project_page() -> None:
 
 
 def report_page() -> None:
-    st.title("Report an issue")
-    st.markdown("<div class='msa-emergency'>If someone is hurt or there's a fire, call "
+    common.page_header("Report an issue", "report", "member")
+    st.markdown("<div class='msa-emergency'><span class='msa-icon'>emergency</span>"
+                "If someone is hurt or there's a fire, call "
                 f"{(st.session_state.get('site') or {}).get('emergency_number', '911')} first.</div>",
                 unsafe_allow_html=True)
     opts = common.equipment_options(include_none=True)
@@ -252,7 +255,7 @@ def report_page() -> None:
 
 
 def inventory_page() -> None:
-    st.title("Supplies")
+    common.page_header("Supplies", "inventory_2", "member")
     st.caption('Tell us what you used, in your own words: "used two sheets of 3 mm acrylic".')
     with st.form("use"):
         text = st.text_input("What did you use or add?")
@@ -287,7 +290,7 @@ def inventory_page() -> None:
 
 
 def floorplan_page() -> None:
-    st.title("Floor plan")
+    common.page_header("Floor plan", "map", "member")
     plans = api.safe(api.get, "/floorplans") or []
     if not plans:
         st.info("No floor plan yet.")

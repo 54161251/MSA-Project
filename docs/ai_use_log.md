@@ -273,3 +273,15 @@ Checked: 6 new regression tests built from the recorded Claude replies, the full
 gives the same results as before except one question the documents do not answer, now refused.
 **Not yet re-run with Claude after the fix**; Lluc to confirm on his machine before merging.
 
+
+## 2026-11-20: dashboard colour scheme (R2, David)
+
+Claude restyled the Streamlit app with the team's presentation colours, using colour to show who
+each page is for: maroon for staff-only pages, coral for member pages, yellow for anything waiting
+on a staff decision, and black-and-yellow hazard stripes for emergency notices. Page titles got a
+coloured header with an icon and a "Staff only" / "Member page" chip, the sidebar sections and icons
+follow the same colours, and a colour key sits in the sidebar. Machine and training status badges
+keep green / orange / red (with icons and words), because those colours carry safety meaning;
+finding icons are coloured by severity. The theme is in `.streamlit/config.toml`; the page-level
+styles are in `src/msa/ui/common.py`. Checked by screenshots of each page as staff and as a member;
+lint and all tests pass. Reviewed by David.

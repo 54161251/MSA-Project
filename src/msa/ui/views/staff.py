@@ -37,14 +37,15 @@ def pages() -> list:
 
 
 def briefing_page() -> None:
-    st.title("Today")
+    common.page_header("Today", "dashboard", "staff")
     b = api.safe(api.get, "/briefing")
     if not b:
         return
     f = b["output"]["facts"]
     st.info(b["output"]["summary"], icon=":material/summarize:")
     c = st.columns(4)
-    c[0].metric("Approvals waiting", sum(a["count"] for a in f["pending_approvals"]))
+    c[0].container(key="metric_approvals").metric("Approvals waiting",
+                                                  sum(a["count"] for a in f["pending_approvals"]))
     c[1].metric("Open escalations", sum(e["count"] for e in f["escalations"]))
     c[2].metric("Machines not available", len(f["machines_not_available"]))
     c[3].metric("Maintenance due", len(f.get("maintenance_due", [])))
@@ -65,8 +66,8 @@ def briefing_page() -> None:
 
 
 def approvals_page() -> None:
-    st.title("Approvals")
-    st.caption("Agents draft; staff decide. Nothing here affects members until you approve it.")
+    common.page_header("Approvals", "approval", "staff",
+                       "Agents draft; staff decide. Nothing here affects members until you approve it.")
     items = api.safe(api.get, "/approvals") or []
     if not items:
         st.success("Nothing waiting.", icon=":material/done_all:")
@@ -77,7 +78,7 @@ def approvals_page() -> None:
     for a in items:
         if pick not in (None, "all") and a["kind"] != pick:
             continue
-        with st.container(border=True):
+        with st.container(border=True, key=f"decide_{a['id']}"):
             st.markdown(f"**{KIND_LABEL.get(a['kind'], a['kind'])}**: {a['summary']}")
             preview(a)
             reason = st.text_input("Note (required to reject)", key=f"r_{a['id']}")
@@ -142,11 +143,11 @@ def preview(a: dict) -> None:
 
 
 def alerts_page() -> None:
-    st.title("Alerts")
+    common.page_header("Alerts", "notifications", "staff")
     t1, t2 = st.tabs(["Escalations", "Notifications"])
     with t1:
         for e in api.safe(api.get, "/escalations") or []:
-            with st.container(border=True):
+            with st.container(border=True, key=f"esc_{e['id']}"):
                 st.markdown(f"**{e['code']}** {e['target_type']} `{e['target_id'][:12]}`")
                 st.write(e["details"])
                 note = st.text_input("Resolution note", key=f"en_{e['id']}")
@@ -171,7 +172,7 @@ CATEGORIES = ["laser_cutter", "fdm_printer", "resin_printer", "cnc_router", "tab
 
 
 def equipment_admin_page() -> None:
-    st.title("Manage equipment")
+    common.page_header("Manage equipment", "settings", "staff")
     t_add, t_edit = st.tabs(["Add equipment", "Edit equipment"])
     with t_add, st.form("add_eq"):
         st.caption("The Intake agent finds or reads the manual, then drafts the SOP, training guide "
@@ -273,7 +274,7 @@ def show_intake(res: dict | None) -> None:
 
 
 def people_page() -> None:
-    st.title("People & permissions")
+    common.page_header("People & permissions", "group", "staff")
     st.caption("Staff have full admin rights in this version; finer roles (steward, manager) "
                "could be added later.")
     users = api.safe(api.get, "/users") or []
@@ -309,11 +310,11 @@ def people_page() -> None:
 
 
 def maintenance_page() -> None:
-    st.title("Maintenance")
+    common.page_header("Maintenance", "build", "staff")
     due = api.safe(api.get, "/maintenance") or []
     st.subheader(f"Due now ({len(due)})")
     for w in due:
-        with st.container(border=True):
+        with st.container(border=True, key=f"due_{w['plan_id']}"):
             st.markdown(f"**{w['equipment_name']}**: {w['task']} ({w['why']})")
             st.caption("Manual: " + " ".join(w["steps"]))
             note = st.text_input("Notes", key=f"mn_{w['plan_id']}")
@@ -350,7 +351,7 @@ def maintenance_page() -> None:
 
 
 def reports_page() -> None:
-    st.title("Reports")
+    common.page_header("Reports", "report", "staff")
     reps = api.safe(api.get, "/reports") or []
     clusters: dict[str, list] = {}
     for r in reps:
@@ -360,7 +361,7 @@ def reports_page() -> None:
         st.success("No open reports.")
     for rs in order:
         r = rs[0]
-        with st.container(border=True):
+        with st.container(border=True, key=f"rep_{r['kind']}_{r['id']}"):
             label = {"incident": ":red-badge[:material/emergency: Incident]",
                      "near_miss": ":orange-badge[:material/warning: Near-miss]"}.get(r["kind"],
                                                                                      ":blue-badge[Feedback]")
@@ -380,7 +381,7 @@ def reports_page() -> None:
 
 
 def inventory_admin_page() -> None:
-    st.title("Inventory & orders")
+    common.page_header("Inventory & orders", "inventory", "staff")
     items = api.safe(api.get, "/inventory") or []
     st.dataframe([{"Item": i["name"], "On hand": i["on_hand"], "Unit": i["unit"],
                    "Reorder at": i["reorder_point"], "Reorder qty": i["reorder_qty"],
@@ -418,7 +419,7 @@ def inventory_admin_page() -> None:
                 st.rerun()
     st.subheader("Orders")
     for o in api.safe(api.get, "/inventory/orders", params={"status": "approved"}) or []:
-        with st.container(border=True):
+        with st.container(border=True, key=f"order_{o['id']}"):
             st.markdown(f"**{o['supplier']}** (approved)")
             for line in o["items"]:
                 st.write(f"- {line['qty']:g} {line['unit']} {line['name']}")
@@ -432,7 +433,7 @@ def inventory_admin_page() -> None:
 
 
 def floorplan_editor_page() -> None:
-    st.title("Floor plan editor")
+    common.page_header("Floor plan editor", "edit_location", "staff")
     plans = api.safe(api.get, "/floorplans") or []
     with st.expander("Upload a new floor plan" if plans else "Upload your floor plan", expanded=not plans):
         st.caption("Draw the empty room (no equipment) in Lucidchart, SmartDraw or similar and "
@@ -513,7 +514,7 @@ def floorplan_editor_page() -> None:
 
 
 def settings_page() -> None:
-    st.title("Settings & logs")
+    common.page_header("Settings & logs", "tune", "staff")
     s = api.safe(api.get, "/settings") or {}
     with st.form("settings"):
         name = st.text_input("Makerspace name", s.get("name", ""))

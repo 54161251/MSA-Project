@@ -1,0 +1,12 @@
+# Team colour scheme (from the presentation deck). Streamlit reads this file when the app is
+# started from the repository root, which is what `python -m msa.cli ui` does in the README.
+# Page-level colours (staff vs member, approvals, emergencies) live in src/msa/ui/common.py.
+[theme]
+base = "light"
+primaryColor = "#B8443A"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#FBEFEC"
+textColor = "#2A1210"
+
+[theme.sidebar]
+backgroundColor = "#FBEFEC"

@@ -8,7 +8,7 @@
   #bar { display: flex; gap: 8px; align-items: center; padding: 6px 2px; flex-wrap: wrap; }
   button { font-size: 15px; padding: 6px 12px; border-radius: 6px; border: 1px solid #888;
            background: #fff; cursor: pointer; }
-  button.primary { background: #0b5cad; color: #fff; border-color: #0b5cad; }
+  button.primary { background: #730E0B; color: #fff; border-color: #730E0B; }
   button:disabled { opacity: 0.5; cursor: default; }
   #hint { font-size: 14px; color: #444; }
   svg { width: 100%; height: auto; border: 1px solid #ccc; border-radius: 6px; touch-action: none; }
@@ -17,7 +17,7 @@
   .item { cursor: pointer; }
   .edit .item { cursor: grab; }
   .item:focus { outline: none; }
-  .item:focus > .shape { stroke: #0b5cad; stroke-width: 6; }
+  .item:focus > .shape { stroke: #730E0B; stroke-width: 6; }
 </style>
 </head>
 <body>
@@ -91,7 +91,7 @@
     for (const it of items) {
       const g = el("g", { class: "item", tabindex: 0, role: "button",
                           "aria-label": `${it.label || it.name || it.kind}${it.status ? ", " + STATUS_TXT[it.status] : ""}` }, svg);
-      const color = it.kind === "equipment" ? (COLORS[it.status] || "#0b5cad")
+      const color = it.kind === "equipment" ? (COLORS[it.status] || "#730E0B")
                   : it.kind === "safety" ? "#00796b" : "#666";
       shape(it, g, color, flagged.has(it.id));
       const cx = px(it.x) + it.w * sx() / 2, cy = py(it.y) + it.h * sy() / 2;
@@ -110,7 +110,7 @@
       }
       if (selected === it.id) {
         el("rect", { x: px(it.x) - 6, y: py(it.y) - 6, width: it.w * sx() + 12, height: it.h * sy() + 12,
-                     fill: "none", stroke: "#0b5cad", "stroke-width": 4 }, g);
+                     fill: "none", stroke: "#730E0B", "stroke-width": 4 }, g);
       }
       g.addEventListener("pointerdown", (ev) => startDrag(ev, it));
       g.addEventListener("keydown", (ev) => onKey(ev, it));

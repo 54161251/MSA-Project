@@ -23,7 +23,8 @@ common.setup_page()
 
 
 def sign_in_page() -> None:
-    st.title("Makerspace Safety Agent")
+    st.markdown("<div class='msa-hero'><h1>Makerspace Safety Agent</h1>"
+                "<p>Agents draft; staff decide.</p></div>", unsafe_allow_html=True)
     tab_in, tab_up = st.tabs(["Sign in", "Create an account"])
     with tab_in, st.form("signin"):
         email = st.text_input("Email")
@@ -60,13 +61,18 @@ else:
     if "site" not in st.session_state:
         st.session_state["site"] = api.safe(api.get, "/settings") or {}
     common.emergency_sidebar()
+    audience = "staff" if user["role"] == "staff" else "member"
+    common.sidebar_nav_css(user["role"])
     with st.sidebar:
-        st.write(f"Signed in as **{user['name']}** ({user['role']})")
+        st.markdown(f"Signed in as **{user['name']}**<br>{common.chip(audience)}", unsafe_allow_html=True)
+        st.caption("Colour key")
+        common.colour_key(user["role"])
         if st.button("Sign out", icon=":material/logout:"):
             for k in ("token", "user", "site"):
                 st.session_state.pop(k, None)
             st.rerun()
-    pages = {"Makerspace": member.pages()}
     if user["role"] == "staff":
-        pages = {"Staff": staff.pages(), **pages}
+        pages = {"Staff only": staff.pages(), "Member pages": member.pages()}
+    else:
+        pages = {"Makerspace": member.pages()}
     st.navigation(pages, expanded=True).run()
