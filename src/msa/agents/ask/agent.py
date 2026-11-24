@@ -132,6 +132,10 @@ FILLER = set(tokens("need needs needed know tell want wants like get gets gettin
                     "okay please also just really any some thing things way ways happen happens "
                     "happened"))
 
+WEAPON_MESSAGE = ("The makerspace can't help with making weapons or weapon parts, and staff "
+                  "have been told about this request. If this was a misunderstanding (for "
+                  "example a prop or a toy), talk to a staff member.")
+
 PARTIAL_NOTE = "The approved documents don't cover all of this; ask a staff member for the rest."
 
 
@@ -174,8 +178,10 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
 
     risk = escalations.match_high_risk(question)
     if risk:
-        escalate(db, "E04", "ask", user_id, f"{', '.join(risk)}: {question[:200]}", "ask")
-        return refuse("E04", categories=risk, trace=[f"rule:high_risk {risk}"])
+        escalate(db, "E04", "ask", user_id,
+                 f"{escalations.describe_risks(risk)}: {question[:200]}", "ask")
+        msg = (WEAPON_MESSAGE if "weapon" in risk else None)
+        return refuse("E04", msg, categories=risk, trace=[f"rule:high_risk {risk}"])
 
     eq = detect_equipment(db, question, payload.get("equipment_id"))
     trace.append(f"detect_equipment -> {eq.id if eq else 'none'}")

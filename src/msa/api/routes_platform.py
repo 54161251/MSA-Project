@@ -213,7 +213,50 @@ def list_escalations(status: str = "open", staff: User = Depends(require_staff),
     q = select(Escalation).order_by(Escalation.created_at.desc())
     if status != "all":
         q = q.where(Escalation.status == status)
-    return [to_dict(e) for e in db.scalars(q).all()]
+    names = {u.id: u.name for u in db.scalars(select(User)).all()}
+    return [{**to_dict(e), **_readable(db, e, names)} for e in db.scalars(q).all()]
+
+
+URGENT_CODES = {"E10", "E04", "E14"}
+INFO_CODES = {"E11", "E12", "E15"}  # don't block anyone; for staff to know
+
+
+def _readable(db: Session, e: Escalation, names: dict[str, str]) -> dict:
+    """Plain-language fields for the Alerts page: what it is, who/what it's about, urgency."""
+    from msa.core import escalations
+    from msa.core.models import FloorPlan, ProjectCheck, Report
+
+    about = ""
+    t, tid = e.target_type, e.target_id
+    if t == "ask":
+        about = f"Member: {names.get(tid, 'unknown member')}"
+    elif t == "equipment":
+        eq = db.get(Equipment, tid)
+        about = f"Machine: {eq.name if eq else tid}"
+    elif t == "report":
+        rep = db.get(Report, tid)
+        if rep is not None:
+            eq = db.get(Equipment, rep.equipment_id) if rep.equipment_id else None
+            who = names.get(rep.user_id or "", "a member")
+            about = f"Report by {who}" + (f" about the {eq.name}" if eq else "")
+    elif t == "project_check":
+        pc = db.get(ProjectCheck, tid)
+        about = f"Project by {names.get(pc.user_id, 'a member')}" if pc else "Member project"
+    elif t == "document":
+        doc = db.get(Document, tid)
+        about = f"Document: {doc.title}" if doc else "Drafted document"
+    elif t == "floorplan":
+        plan = db.get(FloorPlan, tid)
+        about = f"Floor plan: {plan.name}" if plan else "Floor plan"
+    elif t in ("agent", "event"):
+        about = f"System: {tid}"
+    details = e.details or ""
+    for uid, name in names.items():  # "3f3c...: not trained" -> "Marcus Lee: not trained"
+        details = details.replace(uid, name)
+    what = escalations.explain(e.code, 1).split(" ", 1)[1]
+    return {"what": what[0].upper() + what[1:], "about": about, "details_readable": details,
+            "urgency": "urgent" if e.code in URGENT_CODES else
+                       ("info" if e.code in INFO_CODES else "action")}
 
 
 @router.post("/escalations/{esc_id}/resolve", tags=["alerts"])

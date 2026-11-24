@@ -256,9 +256,12 @@ def report_page() -> None:
 
 def inventory_page() -> None:
     common.page_header("Supplies", "inventory_2", "member")
-    st.caption('Tell us what you used, in your own words: "used two sheets of 3 mm acrylic".')
+    staff = (st.session_state.get("user") or {}).get("role") == "staff"
+    st.caption('Tell us what you used, in your own words: "used two sheets of 3 mm acrylic".'
+               + ("" if staff else " Only staff can add stock; to give supplies to the "
+                  "makerspace, hand them to a staff member."))
     with st.form("use"):
-        text = st.text_input("What did you use or add?")
+        text = st.text_input("What did you use or add?" if staff else "What did you use?")
         go = st.form_submit_button("Log it", type="primary")
     if go and text.strip():
         st.session_state["inv_res"] = api.safe(api.post, "/inventory/use", {"text": text})
@@ -280,6 +283,8 @@ def inventory_page() -> None:
         elif res.get("status") == "ok":
             st.success(f"Logged {out['delta']:+g} {out['unit']} of {out['item']}. "
                        f"{out['on_hand']:g} left.")
+        elif out.get("message"):  # e.g. a member trying to add stock
+            st.warning(out["message"], icon=":material/block:")
     items = api.safe(api.get, "/inventory") or []
     st.dataframe([{"Item": i["name"], "On hand": i["on_hand"], "Unit": i["unit"],
                    "Low?": "Yes" if i["on_hand"] <= i["reorder_point"] else ""} for i in items],

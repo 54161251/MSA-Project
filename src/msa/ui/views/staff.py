@@ -46,9 +46,18 @@ def briefing_page() -> None:
     c = st.columns(4)
     c[0].container(key="metric_approvals").metric("Approvals waiting",
                                                   sum(a["count"] for a in f["pending_approvals"]))
-    c[1].metric("Open escalations", sum(e["count"] for e in f["escalations"]))
+    c[1].metric("Open alerts", sum(e["count"] for e in f["escalations"]))
     c[2].metric("Machines not available", len(f["machines_not_available"]))
     c[3].metric("Maintenance due", len(f.get("maintenance_due", [])))
+    if f["escalations"]:
+        st.subheader("Open alerts")
+        for e in f["escalations"]:
+            st.markdown(f"- {e['what'][0].upper()}{e['what'][1:]}")
+        st.caption("Details and the Resolve buttons are on the Alerts page.")
+    if f["pending_approvals"]:
+        st.subheader("Waiting for your approval")
+        for a in f["pending_approvals"]:
+            st.markdown(f"- {a['what'][0].upper()}{a['what'][1:]}")
     if f["machines_not_available"]:
         st.subheader("Machines")
         for m in f["machines_not_available"]:
@@ -142,20 +151,76 @@ def preview(a: dict) -> None:
 # ------------------------------------------------------------------- alerts
 
 
+URGENCY = {
+    "urgent": ("Urgent", ":red[:material/emergency:]", "Injuries, fire, dangerous requests and "
+               "system failures. Deal with these first."),
+    "action": ("Needs a decision", ":orange[:material/front_hand:]", "A member was stopped and "
+               "may need help, or a draft needs fixing."),
+    "info": ("For information", ":gray[:material/info:]", "Nobody is blocked; check when you can."),
+}
+
+
+def _ago(ts: str) -> str:
+    from datetime import datetime, timezone
+    try:
+        t = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return ts[:16]
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    mins = int((datetime.now(timezone.utc) - t).total_seconds() // 60)
+    if mins < 1:
+        return "just now"
+    if mins < 60:
+        return f"{mins} min ago"
+    if mins < 60 * 24:
+        return f"{mins // 60} h ago"
+    return f"{mins // (60 * 24)} days ago"
+
+
 def alerts_page() -> None:
-    common.page_header("Alerts", "notifications", "staff")
-    t1, t2 = st.tabs(["Escalations", "Notifications"])
+    common.page_header("Alerts", "notifications", "staff",
+                       "Things the agents stopped and handed to a person. Resolve each one with a "
+                       "short note of what you did.")
+    esc = api.safe(api.get, "/escalations") or []
+    notes = api.safe(api.get, "/notifications") or []
+    t1, t2 = st.tabs([f"Alerts ({len(esc)})", f"Notifications ({len(notes)})"])
     with t1:
-        for e in api.safe(api.get, "/escalations") or []:
-            with st.container(border=True, key=f"esc_{e['id']}"):
-                st.markdown(f"**{e['code']}** {e['target_type']} `{e['target_id'][:12]}`")
-                st.write(e["details"])
-                note = st.text_input("Resolution note", key=f"en_{e['id']}")
-                if st.button("Resolve", key=f"er_{e['id']}"):
-                    if api.safe(api.post, f"/escalations/{e['id']}/resolve", {"note": note}):
-                        st.rerun()
+        if not esc:
+            st.success("No open alerts.", icon=":material/done_all:")
+        groups = {k: [e for e in esc if e.get("urgency", "action") == k] for k in URGENCY}
+        c = st.columns(3)
+        for col, (k, (label, _icon, _)) in zip(c, URGENCY.items(), strict=True):
+            col.metric(label, len(groups[k]))
+        for k, (label, icon, help_text) in URGENCY.items():
+            if not groups[k]:
+                continue
+            st.subheader(f"{icon} {label}")
+            st.caption(help_text)
+            for e in groups[k]:
+                with st.container(border=True, key=f"esc_{e['id']}"):
+                    head, when = st.columns([5, 1])
+                    head.markdown(f"**{e.get('what') or e['code']}**")
+                    when.caption(_ago(e["created_at"]))
+                    if e.get("about"):
+                        st.markdown(e["about"])
+                    lines = [ln for ln in (e.get("details_readable") or e["details"]).splitlines()
+                             if ln.strip()]
+                    if lines:
+                        shown = "\n".join(f"- {ln}" for ln in lines[:5])
+                        more = f"\n- …and {len(lines) - 5} more" if len(lines) > 5 else ""
+                        st.markdown(shown + more)
+                    a, b = st.columns([4, 1], vertical_alignment="bottom")
+                    note = a.text_input("What did you do?", key=f"en_{e['id']}",
+                                        placeholder="e.g. Spoke to the member, showed them the guard")
+                    if b.button("Resolve", key=f"er_{e['id']}", type="primary"):
+                        if api.safe(api.post, f"/escalations/{e['id']}/resolve", {"note": note}):
+                            st.rerun()
+                    st.caption(f"Code {e['code']}")
     with t2:
-        for n in api.safe(api.get, "/notifications") or []:
+        if not notes:
+            st.success("No open notifications.", icon=":material/done_all:")
+        for n in notes:
             cols = st.columns([6, 1])
             count = f" (x{n['count']})" if n["count"] > 1 else ""
             cols[0].markdown(f"{common.SEVERITY_ICON.get(n['severity'], '')} {n['message']}{count}")
@@ -432,6 +497,57 @@ def inventory_admin_page() -> None:
 # -------------------------------------------------------------- floor plan
 
 
+LAYOUT_FIX = {
+    "LAY-BOUNDS": "Drag it back inside the room outline.",
+    "LAY-ROTATION": "Rotate it to 0, 90, 180 or 270 degrees.",
+    "LAY-CLEAR": "Move it out of the machine's shaded clearance zone (turn on \"Show clearance "
+                 "zones\" to see the zones).",
+    "LAY-EXT": "Move the machine closer to a fire extinguisher, or add one nearby (Add object → "
+               "Safety item: extinguisher).",
+    "LAY-EXT-LASER": "Laser cutters need an extinguisher very close. Move one next to it (Add "
+                     "object → Safety item: extinguisher).",
+    "LAY-EYEWASH": "Move the machine closer to the eyewash station, or add one nearby (Add object "
+                   "→ Safety item: eyewash).",
+    "LAY-FIRSTAID": "Add a first aid kit (Add object → Safety item: first_aid).",
+    "LAY-EXIT-NONE": "Mark at least one exit (Add object → Safety item: exit).",
+    "LAY-AISLE": "Clear a walkway from this machine to an exit; move whatever is blocking it.",
+}
+
+
+def _layout_problem(fnd: dict) -> None:
+    """One layout problem as a coloured box: what is wrong, then how to fix it."""
+    fix = LAYOUT_FIX.get(fnd["rule_id"], "")
+    body = f"**{fnd['text']}**" + (f"  \nHow to fix: {fix}" if fix else "")
+    if fnd["severity"] == "high":
+        st.error(body, icon=":material/error:")
+    else:
+        st.warning(body, icon=":material/warning:")
+
+
+def _remember_layout(pid: str, findings: list[dict]) -> None:
+    """Keep the problems from before a change, to say what the change broke or fixed."""
+    st.session_state[f"_layout_before_{pid}"] = [f["text"] for f in findings]
+
+
+def _layout_change_banner(pid: str, findings: list[dict]) -> None:
+    before = st.session_state.pop(f"_layout_before_{pid}", None)
+    if before is None:
+        return
+    now = [f["text"] for f in findings]
+    new = [f for f in findings if f["text"] not in before]
+    fixed = [t for t in before if t not in now]
+    if new:
+        st.error(f"**Your change created {len(new)} new layout problem"
+                 f"{'s' if len(new) > 1 else ''}.** Staff have been alerted. See the details "
+                 "below and move things back, or fix them.", icon=":material/report:")
+    elif fixed:
+        st.success(f"Saved. Your change fixed {len(fixed)} layout problem"
+                   f"{'s' if len(fixed) > 1 else ''}.", icon=":material/check_circle:")
+    else:
+        st.info("Saved. The change didn't add or fix any layout problems.",
+                icon=":material/check:")
+
+
 def floorplan_editor_page() -> None:
     common.page_header("Floor plan editor", "edit_location", "staff")
     plans = api.safe(api.get, "/floorplans") or []
@@ -457,21 +573,26 @@ def floorplan_editor_page() -> None:
     plan = api.safe(api.get, f"/floorplans/{pid}")
     if not plan:
         return
+    findings = plan["check"]["data"].get("findings", [])
+    _layout_change_banner(pid, findings)
+    if findings:
+        serious = sum(1 for f in findings if f["severity"] == "high")
+        st.subheader(f"Layout check: {len(findings)} problem{'s' if len(findings) > 1 else ''}"
+                     + (f" ({serious} serious)" if serious else ""))
+        for fnd in sorted(findings, key=lambda f: f["severity"] != "high"):
+            _layout_problem(fnd)
+    else:
+        st.success("Layout check passed: clearances, exits and safety equipment are all fine.",
+                   icon=":material/check_circle:")
     show_zones = st.toggle("Show clearance zones", True)
     ev = floorplan(plan, mode="edit", show_zones=show_zones, key=f"edit_fp_{pid}")
     if ev and ev.get("action") == "save" and st.session_state.get("_last_save") != ev.get("n"):
         st.session_state["_last_save"] = ev.get("n")
+        _remember_layout(pid, findings)
         res = api.safe(api.post, f"/floorplans/{pid}/save", {"items": ev["items"]})
         if res:
-            st.toast(f"Saved {res['moved']} item(s)")
             st.rerun()
-    findings = plan["check"]["data"].get("findings", [])
-    if findings:
-        st.subheader("Layout check")
-        for fnd in findings:
-            st.markdown(f"{common.SEVERITY_ICON.get(fnd['severity'], '')} {fnd['text']} `{fnd['rule_id']}`")
-    else:
-        st.success("Layout check passed.", icon=":material/check_circle:")
+        st.session_state.pop(f"_layout_before_{pid}", None)  # save failed: nothing changed
     t1, t2, t3 = st.tabs(["Add machine", "Add object", "Remove item"])
     with t1:
         if plan["unplaced"]:
@@ -479,6 +600,7 @@ def floorplan_editor_page() -> None:
             with st.form("add_machine"):
                 eid = st.selectbox("Machine", plan["unplaced"], format_func=lambda k: opts.get(k, k))
                 if st.form_submit_button("Place it"):
+                    _remember_layout(pid, findings)
                     api.safe(api.post, f"/floorplans/{pid}/items", {"kind": "equipment", "equipment_id": eid})
                     st.rerun()
             if st.button("Suggest safe spots for all unplaced machines", icon=":material/auto_awesome:"):
@@ -498,6 +620,7 @@ def floorplan_editor_page() -> None:
         w = b.number_input("Width", 0.1, 500.0, 3.0)
         h = c.number_input("Depth", 0.1, 500.0, 2.0)
         if st.form_submit_button("Add"):
+            _remember_layout(pid, findings)
             api.safe(api.post, f"/floorplans/{pid}/items", {
                 "kind": kind, "shape": shape, "safety_type": safety or None, "label": label,
                 "w": w, "h": h, "units": units, "x": 0.5, "y": 0.5})
@@ -506,6 +629,7 @@ def floorplan_editor_page() -> None:
         labels = {i["id"]: i.get("name") or i["label"] or i["kind"] for i in plan["items"]}
         rid = st.selectbox("Item", list(labels), format_func=labels.get)
         if st.button("Remove from plan"):
+            _remember_layout(pid, findings)
             api.safe(api.delete, f"/floorplans/{pid}/items/{rid}")
             st.rerun()
 

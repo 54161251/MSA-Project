@@ -212,5 +212,17 @@
     "user": "priya@example.org",
     "description": "Laser cut a 300 mm wide plywood panel, 3 mm thick.",
     "expect": "clear_with_conditions"
+  },
+  {
+    "id": "cc-weapon-gun",
+    "user": "priya@example.org",
+    "description": "3D print a gun in PLA on 3D Printer 1.",
+    "expect": "needs_staff",
+    "codes": [
+      "E04"
+    ],
+    "rules": [
+      "RISK-WEAPON"
+    ]
   }
 ]
