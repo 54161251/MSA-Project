@@ -30,7 +30,10 @@ NUMBERS = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5
            "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "fifteen": 15,
            "twenty": 20, "half": 0.5, "a couple": 2, "couple": 2, "a few": 3}
 ADD_WORDS = ["restock", "restocked", "added", "add", "received", "delivered", "bought", "put back",
-             "returned"]
+             "returned", "brought", "bring", "bringing", "donate", "donated", "donating",
+             "gave back", "give back", "giving back", "from home", "dropped off", "drop off",
+             "contributed", "contribute", "topped up", "refilled", "stocked", "here are",
+             "here is", "left some", "leaving some"]
 USE_WORDS = ["used", "use", "took", "take", "consumed", "cut", "printed", "wasted", "finished"]
 
 
@@ -41,9 +44,13 @@ def on_hand(db: Session, item_id: str) -> float:
 
 def _qty(text: str) -> float | None:
     t = text.lower()
-    m = re.search(r"(?<![\d.])(\d+(?:\.\d+)?)(?!\s*(?:mm|cm|in\b|inch|ml|l\b|kg|g\b|%|x))", t)
+    unit = r"\s*(?:mm|cm|in\b|inch|ml|l\b|kg|g\b|%|x)"
+    # (?![\d.]) stops "20 g" from matching as "2" once "20 g" is ruled out as a measurement
+    m = re.search(rf"(?<![\d.])(\d+(?:\.\d+)?)(?![\d.])(?!{unit})", t)
     if m:
         return float(m.group(1))
+    if re.search(r"\d\s*(?:kg|g|ml|l)\b", t):
+        return None  # an amount by weight or volume ("about 20 g"): ask how many, don't guess "a" = 1
     for w in sorted(NUMBERS, key=len, reverse=True):
         if re.search(rf"\b{w}\b", t):
             return float(NUMBERS[w])
@@ -87,6 +94,16 @@ SYSTEM = (
 )
 
 
+def _says_use(text: str) -> bool:
+    t = text.lower()
+    return any(re.search(rf"\b{w}\b", t) for w in USE_WORDS)
+
+
+def _is_staff(db: Session, actor: str) -> bool:
+    user = db.get(User, actor)
+    return user is not None and user.role == "staff"
+
+
 def _staff_only_restock(db: Session, actor: str) -> AgentResult | None:
     """Members log use; only staff add stock (A2). Checked here, on the server, for every caller."""
     user = db.get(User, actor)
@@ -110,6 +127,15 @@ def log_use(db: Session, payload: dict, actor: str) -> AgentResult:
             return refused
     else:
         base = deterministic_parse(db, text)
+        if base["direction"] > 0 and (refused := _staff_only_restock(db, actor)):
+            return refused  # "brought from home": decided before any model call
+        if not _is_staff(db, actor) and not _says_use(text):
+            # Guessing "used" here would take stock off the shelf for "I brought ... from home".
+            return AgentResult(agent="inventory", status="refused", output={
+                "needs_rephrase": True,
+                "message": "I can only log supplies you used. Please say it like "
+                           "\"used 2 sheets of 3 mm plywood\". To give supplies to the "
+                           "makerspace, hand them to a staff member."})
         cands = base["candidates"]
         fallback = {"item_id": cands[0]["item_id"] if len(cands) == 1 or (
             len(cands) > 1 and cands[0]["score"] - cands[1]["score"] >= 0.3) else None,
@@ -120,7 +146,7 @@ def log_use(db: Session, payload: dict, actor: str) -> AgentResult:
         ids = {c["item_id"] for c in cands}
         item_id = out.get("item_id") if out.get("item_id") in ids else None
         qty = out.get("quantity") if isinstance(out.get("quantity"), (int, float)) else base["quantity"]
-        direction = 1 if out.get("direction") == 1 else -1
+        direction = 1 if out.get("direction") == 1 or base["direction"] > 0 else -1
         if direction > 0 and (refused := _staff_only_restock(db, actor)):
             return refused
         if item_id is None or not qty:

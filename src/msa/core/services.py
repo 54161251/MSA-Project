@@ -6,6 +6,7 @@ All of them take an open SQLAlchemy session and flush, but never commit: the cal
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from sqlalchemy import select
@@ -214,9 +215,21 @@ def escalate(
         db.add(esc)
         db.flush()
     severity = "critical" if code == "E10" else ("warning" if meta.blocking else "info")
+    what = escalations.explain(code, 1).split(" ", 1)[1]
     notify(db, STAFF, f"escalation:{code}:{target_type}:{target_id}",
-           f"{code} {meta.title}: {details[:200]}", severity)
+           f"{what[0].upper()}{what[1:]}: {_with_names(db, details)[:200]}", severity)
     return esc
+
+
+_ID = re.compile(r"\b[0-9a-f]{32}\b")
+
+
+def _with_names(db: Session, text: str) -> str:
+    """Swap user ids in a message for the person's name ("3f3c...: not trained" -> "Marcus Lee: ...")."""
+    def name(m: re.Match) -> str:
+        u = db.get(User, m.group(0))
+        return u.name if u is not None else m.group(0)
+    return _ID.sub(name, text or "")
 
 
 def resolve_escalation(db: Session, esc_id: str, staff: User, resolution: str) -> Escalation:

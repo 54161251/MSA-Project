@@ -285,3 +285,37 @@ keep green / orange / red (with icons and words), because those colours carry sa
 finding icons are coloured by severity. The theme is in `.streamlit/config.toml`; the page-level
 styles are in `src/msa/ui/common.py`. Checked by screenshots of each page as staff and as a member;
 lint and all tests pass. Reviewed by David.
+
+## 2026-11-24: Changes after the demo rehearsal (Claude Opus 5.5, chat session; requested by Lluc)
+
+Lluc asked for six changes after rehearsing the class demo. Claude made them on one branch:
+* **Weapons (R1/R5 catalog, R3 Project Check, R5 Ask).** A new `weapon` high-risk category
+  ("3D print a gun", "lower receiver", "silencer", "bomb"...) is refused in Ask with its own
+  message and flagged in Project Check (`RISK-WEAPON`, E04). Whole-word matching with exceptions,
+  so "hot glue gun", "heat gun", "nail gun", "begun", "bath bomb" are not flagged. Knives and
+  swords are deliberately *not* included (common, legitimate makerspace projects); staff can
+  add them.
+* **Floor plan editor (R2).** The layout check now sits above the plan, each problem is a red or
+  amber box with a "How to fix" line instead of a rule code, and after a save, add or remove a
+  banner says whether the change created or fixed problems.
+* **Daily briefing (R2).** Problems are described in plain words, most urgent first; the model
+  never sees codes or ids, and a summary that still contains a code is replaced by the
+  rule-based one. The Today page lists open alerts and waiting approvals in plain words.
+* **Alerts page (R2, R1 API).** Alerts grouped as Urgent / Needs a decision / For information,
+  each with a plain title, who or what it's about (names, not ids), the details, time and a
+  Resolve box; the code is shown small. `/escalations` returns these fields; staff
+  notifications use the same wording.
+* **Supplies (R6).** Members could already not add stock with words like "restocked", but
+  "I brought 3 sheets of plywood from home", "donating" and "gave back" were logged as *use*
+  (stock went down). These are now recognised as adding (refused for members), and a member
+  sentence with no "used"-type word asks them to rephrase. Also fixed a quantity bug: "about
+  20 g of PLA" was read as 2.
+* **README.** Demo accounts, starting without `--approve-all`, restarting after a pull, saving
+  and restoring a demo starting point, what members and staff can do, a plain-language code
+  table and troubleshooting.
+
+Checked: 37 new tests (`tests/test_demo_feedback.py`), full suite 291 passed, `ruff` clean,
+offline evaluation 100% with 0 unsafe answers (2 new cases), every changed page rendered with
+Streamlit's test harness against a running API. Not checked with Claude connected, and the
+pages were not looked at in a real browser. These touch R2, R3 and R6 code; those owners
+should review the pull request.

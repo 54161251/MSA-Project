@@ -153,9 +153,15 @@ def run(db: Session, payload: dict, actor: str) -> AgentResult:
 
     risk = escalations.match_high_risk(description)
     if risk:
-        add(None, "critical", "This plan includes a high-risk activity "
-            f"({', '.join(r.replace('_', ' ') for r in risk)}). A staff member must review it.",
-            [f"RISK-{r.upper()}" for r in risk], "E04")
+        if "weapon" in risk:
+            add(None, "critical", "This plan looks like making a weapon or weapon part. The "
+                "makerspace can't help with that; a staff member must review it before anything "
+                "is made.", ["RISK-WEAPON"], "E04")
+        rest = [r for r in risk if r != "weapon"]
+        if rest:
+            add(None, "critical", "This plan includes a high-risk activity "
+                f"({escalations.describe_risks(rest)}). A staff member must review it.",
+                [f"RISK-{r.upper()}" for r in rest], "E04")
 
     for i, st in enumerate(steps):
         project_procs.update(st["processes"])
